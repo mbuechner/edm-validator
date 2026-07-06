@@ -228,6 +228,7 @@
     const URI_STORAGE_KEY = 'ddb-edm-validator-uri';
     const XML_STORAGE_KEY = 'ddb-edm-validator-xml';
     const MODE_STORAGE_KEY = 'ddb-edm-validator-input-mode';
+    const API_REQUEST_TIMEOUT_MS = 300000;
     let rdfGraphInstance = null;
     let graphState = null;
 
@@ -285,6 +286,49 @@
 
         html += '</li>';
         $('#resultList').append(html);
+    }
+
+    function summarizeResponseBody(bodyText) {
+        if (!bodyText) {
+            return '';
+        }
+
+        const trimmedBody = bodyText.trim();
+        if (!trimmedBody) {
+            return '';
+        }
+
+        if (trimmedBody.startsWith('<')) {
+            return 'Antwort war HTML statt JSON.';
+        }
+
+        return trimmedBody.length > 400 ? trimmedBody.substring(0, 400) + '…' : trimmedBody;
+    }
+
+    function buildHttpErrorMessage(response, bodyText) {
+        const parts = ['HTTP ' + response.status];
+        if (response.statusText) {
+            parts.push(response.statusText);
+        }
+
+        const bodySummary = summarizeResponseBody(bodyText);
+        if (bodySummary) {
+            parts.push(bodySummary);
+        }
+
+        return parts.join(' - ');
+    }
+
+    function parseJsonResponseText(responseText) {
+        if (!responseText) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(responseText);
+        } catch (error) {
+            throw new Error('Backend lieferte ungültiges JSON: ' + summarizeResponseBody(responseText));
+        }
     }
 
     function renderChecklist(data) {
@@ -731,51 +775,72 @@
             renderXml(null);
 
             try {
-                const response = await fetch('./api/validate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ddbUri: inputMode === 'uri' ? ddbUri : null,
-                        rdfXml: inputMode === 'xml' ? rdfXml : null,
-                        europeanaProfile: inputMode === 'uri' ? europeanaProfile : false
-                    })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Backend-Antwort war nicht erfolgreich.');
-                }
-
-                const successful = !!data.overallPassed;
-                setResult(successful ? 'success' : 'warning', data.message || 'Validierung abgeschlossen');
-                renderChecklist(data);
-
-                addResultItem('Eingabe-URL', data.inputUrl || '-');
-                if (data.apiUrl) {
-                    addResultItem('API-URL', data.apiUrl);
-                }
-                addResultItem('XML-Syntax bestanden', data.xmlSyntaxPassed ? 'Ja' : 'Nein');
-                addResultItem('RDF-Syntax bestanden', data.rdfSyntaxPassed ? 'Ja' : 'Nein');
-                addResultItem('SHACL bestanden', data.shaclPassed ? 'Ja' : 'Nein');
-                if (Array.isArray(data.graphNodes) && Array.isArray(data.graphLinks)) {
-                    addResultItem('Graph-Knoten', data.graphNodes.length);
-                    addResultItem('Graph-Kanten', data.graphLinks.length);
-                }
-                if (data.error) {
-                    addResultItem('Fehler', data.error);
-                }
-
-                if (Array.isArray(data.results)) {
-                    data.results.forEach(function (item) {
-                        addResultBlock(item);
+                const requestController = new AbortController();
+                const requestTimeoutId = window.setTimeout(function () {
+                    requestController.abort();
+                }, API_REQUEST_TIMEOUT_MS);
+                try {
+                    const response = await fetch('./api/validate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: requestController.signal,
+                        body: JSON.stringify({
+                            ddbUri: inputMode === 'uri' ? ddbUri : null,
+                            rdfXml: inputMode === 'xml' ? rdfXml : null,
+                            europeanaProfile: inputMode === 'uri' ? europeanaProfile : false
+                        })
                     });
+
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        throw new Error(buildHttpErrorMessage(response, responseText));
+                    }
+
+                    const data = parseJsonResponseText(responseText);
+
+                    if (!data) {
+                        throw new Error('Backend lieferte keine JSON-Antwort.');
+                    }
+
+                    const successful = !!data.overallPassed;
+                    setResult(successful ? 'success' : 'warning', data.message || 'Validierung abgeschlossen');
+                    renderChecklist(data);
+
+                    addResultItem('Eingabe-URL', data.inputUrl || '-');
+                    if (data.apiUrl) {
+                        addResultItem('API-URL', data.apiUrl);
+                    }
+                    addResultItem('XML-Syntax bestanden', data.xmlSyntaxPassed ? 'Ja' : 'Nein');
+                    addResultItem('RDF-Syntax bestanden', data.rdfSyntaxPassed ? 'Ja' : 'Nein');
+                    addResultItem('SHACL bestanden', data.shaclPassed ? 'Ja' : 'Nein');
+                    if (Array.isArray(data.graphNodes) && Array.isArray(data.graphLinks)) {
+                        addResultItem('Graph-Knoten', data.graphNodes.length);
+                        addResultItem('Graph-Kanten', data.graphLinks.length);
+                    }
+                    if (data.error) {
+                        addResultItem('Fehler', data.error);
+                    }
+
+                    if (Array.isArray(data.results)) {
+                        data.results.forEach(function (item) {
+                            addResultBlock(item);
+                        });
+                    }
+
+                    $('#details').removeClass('d-none');
+                    renderGraph(data);
+                    renderXml(data.rdfXml);
+                } finally {
+                    window.clearTimeout(requestTimeoutId);
+                }
+            } catch (error) {
+                if (error && error.name === 'AbortError') {
+                    setResult('danger', 'Fehler: Die Anfrage hat das Zeitlimit von ' + Math.round(API_REQUEST_TIMEOUT_MS / 1000) + ' Sekunden überschritten.');
+                    hideGraph();
+                    return;
                 }
 
-                $('#details').removeClass('d-none');
-                renderGraph(data);
-                renderXml(data.rdfXml);
-            } catch (error) {
                 setResult('danger', 'Fehler: ' + error.message);
                 hideGraph();
             }

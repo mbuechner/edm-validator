@@ -35,7 +35,7 @@ public class DdbEdmValidationService {
             DdbConstants.DDB_WEB_ITEM_PATTERN);
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(60))
             .build();
 
     private final XmlSyntaxValidator xmlSyntaxValidator;
@@ -290,7 +290,7 @@ public class DdbEdmValidationService {
 
     private byte[] downloadRdfXml(String apiUrl, boolean europeanaProfile) {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(apiUrl))
-                .timeout(Duration.ofSeconds(30))
+            .timeout(Duration.ofSeconds(120))
                 .header("Accept", "application/rdf+xml, application/xml;q=0.9, */*;q=0.8")
                 .header("User-Agent", "edm-validator/0.0.1");
 
