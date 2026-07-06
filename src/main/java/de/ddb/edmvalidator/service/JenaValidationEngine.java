@@ -43,18 +43,19 @@ public class JenaValidationEngine {
         try {
             RDFParser.create()
                     .source(new ByteArrayInputStream(rdfXmlBytes))
+                    .base(DdbConstants.DDB_RESOURCE_BASE)
                     .lang(Lang.RDFXML)
                     .errorHandler(ErrorHandlerFactory.errorHandlerStrict)
                     .parse(StreamRDFLib.sinkNull());
 
-            return itemFactory.success(ValidationSections.XML, "Jena RDF/XML Grammar", "RDF/XML-Grammatik ist gültig", null, null);
+            return itemFactory.success(ValidationSections.RDF, "Jena RDF/XML Grammar", "RDF/XML-Grammatik ist gültig", null, null);
         } catch (RiotException ex) {
             ValidationIssueEnricher.LineCol lineCol = issueEnricher.extractLineCol(ex.getMessage());
-            return itemFactory.failure(ValidationSections.XML, "Jena RDF/XML Grammar", ex.getMessage(), lineCol.line(), lineCol.column(), rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.RDF, "Jena RDF/XML Grammar", ex.getMessage(), lineCol.line(), lineCol.column(), rdfXmlBytes);
         } catch (LinkageError ex) {
-            return itemFactory.failure(ValidationSections.XML, "Jena RDF/XML Grammar", jenaInitErrorMessage(ex), null, null, rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.RDF, "Jena RDF/XML Grammar", jenaInitErrorMessage(ex), null, null, rdfXmlBytes);
         } catch (Exception ex) {
-            return itemFactory.failure(ValidationSections.XML, "Jena RDF/XML Grammar", ex.getMessage(), null, null, rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.RDF, "Jena RDF/XML Grammar", ex.getMessage(), null, null, rdfXmlBytes);
         }
     }
 

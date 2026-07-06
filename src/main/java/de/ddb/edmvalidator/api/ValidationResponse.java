@@ -8,6 +8,7 @@ public record ValidationResponse(
         boolean patternValid,
         boolean downloadSuccessful,
         boolean xmlSyntaxPassed,
+        boolean edmXsdPassed,
         boolean rdfSyntaxPassed,
         boolean shaclPassed,
         boolean overallPassed,

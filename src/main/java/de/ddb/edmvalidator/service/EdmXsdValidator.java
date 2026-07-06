@@ -31,13 +31,13 @@ public class EdmXsdValidator {
             safeSetProperty(validator, XMLConstants.ACCESS_EXTERNAL_DTD, "");
             safeSetProperty(validator, XMLConstants.ACCESS_EXTERNAL_SCHEMA, "http,https");
             validator.validate(new javax.xml.transform.stream.StreamSource(new ByteArrayInputStream(rdfXmlBytes)));
-            return itemFactory.success(ValidationSections.XML, "EDM XSD", "EDM-XSD-Validierung erfolgreich", null, null);
+            return itemFactory.success(ValidationSections.EDM_XSD, "EDM XSD", "EDM-XSD-Validierung erfolgreich", null, null);
         } catch (SAXParseException ex) {
-            return itemFactory.failure(ValidationSections.XML, "EDM XSD", ex.getMessage(), ex.getLineNumber(), ex.getColumnNumber(), rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.EDM_XSD, "EDM XSD", ex.getMessage(), ex.getLineNumber(), ex.getColumnNumber(), rdfXmlBytes);
         } catch (SAXException ex) {
-            return itemFactory.failure(ValidationSections.XML, "EDM XSD", ex.getMessage(), null, null, rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.EDM_XSD, "EDM XSD", ex.getMessage(), null, null, rdfXmlBytes);
         } catch (Exception ex) {
-            return itemFactory.failure(ValidationSections.XML, "EDM XSD", ex.getMessage(), null, null, rdfXmlBytes);
+            return itemFactory.failure(ValidationSections.EDM_XSD, "EDM XSD", ex.getMessage(), null, null, rdfXmlBytes);
         }
     }
 

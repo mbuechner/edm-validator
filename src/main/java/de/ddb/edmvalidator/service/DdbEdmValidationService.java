@@ -81,6 +81,7 @@ public class DdbEdmValidationService {
                     false,
                     false,
                     false,
+                    false,
                     null,
                     List.of(),
                     List.of(),
@@ -102,6 +103,7 @@ public class DdbEdmValidationService {
                     inputUrl,
                     apiUrl,
                     true,
+                    false,
                     false,
                     false,
                     false,
@@ -149,9 +151,10 @@ public class DdbEdmValidationService {
         GraphPayload graphPayload = buildGraphPayload(jenaParse.model());
 
         boolean xmlSyntaxPassed = allSucceededInSection(results, ValidationSections.XML);
+        boolean edmXsdPassed = allSucceededInSection(results, ValidationSections.EDM_XSD);
         boolean rdfSyntaxPassed = allSucceededInSection(results, ValidationSections.RDF);
         boolean shaclPassed = allSucceededInSection(results, ValidationSections.SHACL);
-        boolean overallPassed = xmlSyntaxPassed && rdfSyntaxPassed && shaclPassed;
+        boolean overallPassed = xmlSyntaxPassed && edmXsdPassed && rdfSyntaxPassed && shaclPassed;
 
         String message = overallPassed
                 ? "Validierung erfolgreich (XML-Syntax, RDF-Syntax, SHACL)"
@@ -163,6 +166,7 @@ public class DdbEdmValidationService {
             patternValid,
             downloadSuccessful,
                 xmlSyntaxPassed,
+                edmXsdPassed,
                 rdfSyntaxPassed,
                 shaclPassed,
                 overallPassed,

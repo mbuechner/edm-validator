@@ -28,6 +28,44 @@
             resize: vertical;
         }
 
+        .query-textarea {
+            min-height: 150px;
+            height: min(26vh, 280px);
+            font-family: Consolas, "Courier New", monospace;
+            white-space: pre;
+            resize: vertical;
+        }
+
+        .query-result-box {
+            min-height: 96px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: .5rem;
+            padding: .75rem;
+            font-size: .95rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .query-result-table {
+            margin-bottom: 0;
+        }
+
+        .query-result-table th,
+        .query-result-table td {
+            vertical-align: top;
+        }
+
+        .query-mode-disabled {
+            opacity: .58;
+        }
+
+        .query-mode-disabled .form-label,
+        .query-mode-disabled .small,
+        .query-mode-disabled .badge {
+            color: inherit;
+        }
+
         .xml-scroll-box {
             max-height: 72vh;
             min-height: 420px;
@@ -214,6 +252,60 @@
                             <div class="border rounded overflow-auto xml-scroll-box">
                                 <pre class="line-numbers mb-0"><code id="xmlCode" class="language-markup"></code></pre>
                             </div>
+                            <div class="card mt-3 border-0 shadow-sm">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                        <h3 class="h6 mb-0">Client-seitige Abfragen</h3>
+                                        <span class="badge text-bg-secondary">Nur im Browser</span>
+                                    </div>
+                                    <p id="queryAvailabilityMessage" class="text-secondary small mb-3">
+                                        Die Abfragen werden nach der serverseitigen Validierung freigeschaltet.
+                                    </p>
+
+                                    <ul class="nav nav-pills gap-2 mb-3" id="queryModeTabs" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active" type="button" data-query-mode="xpath">XPath</button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" type="button" data-query-mode="sparql">SPARQL</button>
+                                        </li>
+                                    </ul>
+
+                                    <div id="paneXPath" class="query-tab-pane active">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                            <label for="xpathQueryInput" class="form-label mb-0">XPath</label>
+                                            <span id="xpathQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
+                                        </div>
+                                        <textarea
+                                                id="xpathQueryInput"
+                                                class="form-control query-textarea mb-2"
+                                                spellcheck="false"
+                                                placeholder="//*[local-name()='title']"></textarea>
+                                        <div class="d-flex flex-wrap gap-2 mb-3">
+                                            <button type="button" id="runXPathBtn" class="btn btn-outline-primary">XPath ausführen</button>
+                                            <button type="button" id="loadXPathExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
+                                        </div>
+                                        <div id="xpathQueryResult" class="query-result-box">Noch keine XPath-Abfrage ausgeführt.</div>
+                                    </div>
+
+                                    <div id="paneSparql" class="query-tab-pane d-none">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                            <label for="sparqlQueryInput" class="form-label mb-0">SPARQL</label>
+                                            <span id="sparqlQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
+                                        </div>
+                                        <textarea
+                                                id="sparqlQueryInput"
+                                                class="form-control query-textarea mb-2"
+                                                spellcheck="false"
+                                                placeholder="PREFIX rdf: &lt;http://www.w3.org/1999/02/22-rdf-syntax-ns#&gt;&#10;SELECT ?s ?p ?o&#10;WHERE { ?s ?p ?o . }"></textarea>
+                                        <div class="d-flex flex-wrap gap-2 mb-3">
+                                            <button type="button" id="runSparqlBtn" class="btn btn-outline-primary">SPARQL ausführen</button>
+                                            <button type="button" id="loadSparqlExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
+                                        </div>
+                                        <div id="sparqlQueryResult" class="query-result-box">Noch keine SPARQL-Abfrage ausgeführt.</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -229,8 +321,27 @@
     const XML_STORAGE_KEY = 'ddb-edm-validator-xml';
     const MODE_STORAGE_KEY = 'ddb-edm-validator-input-mode';
     const API_REQUEST_TIMEOUT_MS = 300000;
+    const RDFLIB_MODULE_URLS = [
+        'https://cdn.jsdelivr.net/npm/rdflib@2.4.0/+esm',
+        'https://esm.sh/rdflib@2.4.0'
+    ];
+    const DEFAULT_XPATH_QUERY = `/rdf:RDF/edm:Place[
+  @rdf:about = /rdf:RDF/edm:ProvidedCHO/edm:currentLocation/@rdf:resource
+]/skos:prefLabel/text()`;
+
+    const DEFAULT_SPARQL_QUERY = `PREFIX edm:  <http://www.europeana.eu/schemas/edm/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?locationLabel
+WHERE {
+  ?object edm:currentLocation ?place .
+  ?place skos:prefLabel ?locationLabel .
+}`;
     let rdfGraphInstance = null;
     let graphState = null;
+    let rdflibModulePromise = null;
+    let currentRdfXmlText = '';
+    let lastValidationData = null;
 
     function buildValueHtml(value) {
         if (typeof value === 'string' && value.startsWith('http')) {
@@ -288,6 +399,275 @@
         $('#resultList').append(html);
     }
 
+    function loadRdflibModule() {
+        if (!rdflibModulePromise) {
+            rdflibModulePromise = (async function () {
+                let lastError = null;
+                for (const moduleUrl of RDFLIB_MODULE_URLS) {
+                    try {
+                        return await import(moduleUrl);
+                    } catch (error) {
+                        lastError = error;
+                    }
+                }
+                throw lastError || new Error('rdflib-Modul konnte nicht geladen werden.');
+            })();
+        }
+        return rdflibModulePromise;
+    }
+
+    function clearQueryResult($target, message) {
+        $target.removeClass('border-success border-danger border-secondary').text(message);
+    }
+
+    function setQueryModeAvailability(mode, enabled, reason) {
+        const paneSelector = mode === 'sparql' ? '#paneSparql' : '#paneXPath';
+        const badgeSelector = mode === 'sparql' ? '#sparqlQueryStateBadge' : '#xpathQueryStateBadge';
+        const inputSelector = mode === 'sparql' ? '#sparqlQueryInput' : '#xpathQueryInput';
+        const runSelector = mode === 'sparql' ? '#runSparqlBtn' : '#runXPathBtn';
+        const loadSelector = mode === 'sparql' ? '#loadSparqlExampleBtn' : '#loadXPathExampleBtn';
+
+        $(paneSelector)
+            .toggleClass('query-mode-disabled', !enabled)
+            .attr('aria-disabled', String(!enabled));
+
+        $(badgeSelector)
+            .removeClass('text-bg-success text-bg-secondary text-bg-warning text-bg-danger')
+            .addClass(enabled ? 'text-bg-success' : 'text-bg-secondary')
+            .text(enabled ? 'Aktiv' : 'Gesperrt');
+
+        $(inputSelector).prop('disabled', !enabled);
+        $(runSelector).prop('disabled', !enabled);
+        $(loadSelector).prop('disabled', !enabled);
+
+        if (!enabled && reason) {
+            $(badgeSelector).attr('title', reason);
+        } else {
+            $(badgeSelector).removeAttr('title');
+        }
+    }
+
+    function updateQueryFeatureState(validationData) {
+        lastValidationData = validationData || null;
+
+        const xmlValid = !!validationData && !!validationData.xmlSyntaxPassed;
+        const rdfValid = !!validationData && !!validationData.rdfSyntaxPassed;
+        const overallValid = !!validationData && !!validationData.overallPassed;
+
+        let message = 'Die Abfragen werden nach der serverseitigen Validierung freigeschaltet.';
+        if (!validationData) {
+            message = 'Noch keine serverseitige Validierung vorhanden.';
+        } else if (overallValid) {
+            message = 'XPath und SPARQL sind aktiv, weil XML und RDF valide sind.';
+        } else if (xmlValid && !rdfValid) {
+            message = 'XPath ist aktiv, weil das XML wohlgeformt ist. SPARQL bleibt gesperrt, bis das RDF/XML valide ist.';
+        } else {
+            message = 'XPath braucht nur wohlgeformtes XML. SPARQL braucht valides RDF/XML. Derzeit bleibt die Freischaltung gesperrt.';
+        }
+
+        $('#queryAvailabilityMessage').text(message);
+        setQueryModeAvailability('xpath', xmlValid, xmlValid ? '' : 'XPath benötigt wohlgeformtes XML.');
+        setQueryModeAvailability('sparql', rdfValid, rdfValid ? '' : 'SPARQL benötigt valides RDF/XML.');
+    }
+
+    function parseXmlDocument(xmlText) {
+        const parser = new DOMParser();
+        const xmlDocument = parser.parseFromString(xmlText, 'application/xml');
+        const parserError = xmlDocument.querySelector('parsererror');
+        if (parserError) {
+            throw new Error(parserError.textContent || 'Ungültiges XML.');
+        }
+        return xmlDocument;
+    }
+
+    function buildXPathErrorMessage(error) {
+        return 'XPath-Fehler: Das aktuelle XML ist nicht wohlgeformt, daher kann die Abfrage nicht ausgeführt werden. ' + error.message;
+    }
+
+    function buildSparqlErrorMessage(error) {
+        return 'SPARQL-Fehler: Das aktuelle RDF/XML ist nicht valide, daher kann die Abfrage nicht ausgeführt werden. ' + error.message;
+    }
+
+    function collectNamespaceMap(xmlDocument) {
+        const namespaceMap = {
+            rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
+        };
+
+        if (!xmlDocument || !xmlDocument.documentElement) {
+            return namespaceMap;
+        }
+
+        const nodes = [xmlDocument.documentElement].concat(Array.from(xmlDocument.getElementsByTagName('*')));
+        nodes.forEach(function (node) {
+            Array.from(node.attributes || []).forEach(function (attribute) {
+                if (attribute.namespaceURI === 'http://www.w3.org/2000/xmlns/') {
+                    if (attribute.prefix === 'xmlns') {
+                        namespaceMap[attribute.localName] = attribute.value;
+                    } else if (attribute.name === 'xmlns') {
+                        namespaceMap[''] = attribute.value;
+                    }
+                }
+            });
+        });
+
+        return namespaceMap;
+    }
+
+    function createNamespaceResolver(namespaceMap) {
+        return function (prefix) {
+            return namespaceMap[prefix] || null;
+        };
+    }
+
+    function serializeXmlNode(node) {
+        if (!node) {
+            return '';
+        }
+        if (node.nodeType === Node.ATTRIBUTE_NODE || node.nodeType === Node.TEXT_NODE || node.nodeType === Node.CDATA_SECTION_NODE) {
+            return node.nodeValue || '';
+        }
+        if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_NODE || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+            return new XMLSerializer().serializeToString(node);
+        }
+        return node.textContent || '';
+    }
+
+    function formatBindingValue(binding) {
+        if (!binding) {
+            return '';
+        }
+        if (typeof binding.toNT === 'function') {
+            return binding.toNT();
+        }
+        if (typeof binding.value === 'string') {
+            return binding.value;
+        }
+        return String(binding);
+    }
+
+    async function runXPathQuery() {
+        const xmlText = currentRdfXmlText;
+        const queryText = $('#xpathQueryInput').val().trim();
+        const $result = $('#xpathQueryResult');
+
+        if (!xmlText) {
+            clearQueryResult($result, 'Bitte zuerst serverseitig validiertes RDF/XML laden oder prüfen.');
+            return;
+        }
+        if (!queryText) {
+            clearQueryResult($result, 'Bitte eine XPath-Abfrage eingeben.');
+            return;
+        }
+
+        try {
+            const xmlDocument = parseXmlDocument(xmlText);
+            const namespaceMap = collectNamespaceMap(xmlDocument);
+            const result = xmlDocument.evaluate(
+                queryText,
+                xmlDocument,
+                createNamespaceResolver(namespaceMap),
+                XPathResult.ANY_TYPE,
+                null
+            );
+
+            const rows = [];
+            switch (result.resultType) {
+                case XPathResult.STRING_TYPE:
+                    rows.push(result.stringValue);
+                    break;
+                case XPathResult.NUMBER_TYPE:
+                    rows.push(String(result.numberValue));
+                    break;
+                case XPathResult.BOOLEAN_TYPE:
+                    rows.push(String(result.booleanValue));
+                    break;
+                default: {
+                    let item = result.iterateNext();
+                    while (item) {
+                        rows.push(serializeXmlNode(item));
+                        item = result.iterateNext();
+                    }
+                    break;
+                }
+            }
+
+            if (rows.length === 0) {
+                clearQueryResult($result, 'XPath lieferte keine Treffer.');
+                return;
+            }
+
+            $result.html('<strong>XPath-Treffer:</strong><ul class="mb-0 mt-2">' + rows.map(function (entry) {
+                return '<li><code>' + $('<div>').text(entry).html() + '</code></li>';
+            }).join('') + '</ul>');
+        } catch (error) {
+            clearQueryResult($result, buildXPathErrorMessage(error));
+        }
+    }
+
+    async function runSparqlQuery() {
+        const xmlText = currentRdfXmlText;
+        const sparqlText = $('#sparqlQueryInput').val().trim();
+        const $result = $('#sparqlQueryResult');
+
+        if (!xmlText) {
+            clearQueryResult($result, 'Bitte zuerst serverseitig validiertes RDF/XML laden oder prüfen.');
+            return;
+        }
+        if (!sparqlText) {
+            clearQueryResult($result, 'Bitte eine SPARQL-Abfrage eingeben.');
+            return;
+        }
+
+        try {
+            parseXmlDocument(xmlText);
+            const rdflib = await loadRdflibModule();
+            const store = rdflib.graph();
+            try {
+                rdflib.parse(xmlText, store, window.location.href, 'application/rdf+xml');
+            } catch (parseError) {
+                throw new Error(parseError.message || 'RDF/XML konnte nicht geparst werden.');
+            }
+
+            const query = rdflib.SPARQLToQuery(sparqlText, true, store);
+            if (!query) {
+                throw new Error('SPARQL konnte nicht in eine rdflib-Query umgewandelt werden.');
+            }
+
+            const rows = store.querySync(query);
+            const columns = (query.vars || []).map(function (variable) {
+                return variable.toNT ? variable.toNT() : ('?' + (variable.label || variable.value || 'var'));
+            });
+
+            if (rows.length === 0) {
+                clearQueryResult($result, 'SPARQL lieferte keine Treffer.');
+                return;
+            }
+
+            if (columns.length === 0) {
+                $result.html('<strong>SPARQL-Treffer:</strong><ul class="mb-0 mt-2">' + rows.map(function (binding) {
+                    return '<li><code>' + $('<div>').text(JSON.stringify(binding, null, 2)).html() + '</code></li>';
+                }).join('') + '</ul>');
+                return;
+            }
+
+            const tableHtml = '<div class="table-responsive mt-2"><table class="table table-sm table-striped align-middle query-result-table"><thead><tr>' +
+                columns.map(function (column) {
+                    return '<th>' + $('<div>').text(column).html() + '</th>';
+                }).join('') +
+                '</tr></thead><tbody>' + rows.map(function (binding) {
+                    return '<tr>' + columns.map(function (column) {
+                        const value = binding[column];
+                        return '<td>' + $('<div>').text(formatBindingValue(value)).html() + '</td>';
+                    }).join('') + '</tr>';
+                }).join('') +
+                '</tbody></table></div>';
+
+            $result.html('<strong>SPARQL-Treffer:</strong> ' + rows.length + tableHtml);
+        } catch (error) {
+            clearQueryResult($result, buildSparqlErrorMessage(error));
+        }
+    }
+
     function summarizeResponseBody(bodyText) {
         if (!bodyText) {
             return '';
@@ -343,8 +723,9 @@
                 ok: isLocalXml ? true : !!data.downloadSuccessful
             },
             { label: '(1) XML-Syntax', ok: !!data.xmlSyntaxPassed },
-            { label: '(2) RDF-Syntax', ok: !!data.rdfSyntaxPassed },
-            { label: '(3) SHACL', ok: !!data.shaclPassed }
+            { label: '(2) EDM XSD', ok: !!data.edmXsdPassed },
+            { label: '(3) RDF-Syntax', ok: !!data.rdfSyntaxPassed },
+            { label: '(4) SHACL', ok: !!data.shaclPassed }
         ];
 
         const $items = $('#checklistItems').empty();
@@ -364,15 +745,18 @@
     }
 
     function renderXml(rdfXml) {
+        currentRdfXmlText = rdfXml || '';
         if (!rdfXml) {
             $('#xmlCode').text('');
             $('#xmlPanel').addClass('d-none');
+            updateQueryFeatureState(null);
             return;
         }
 
         $('#xmlCode').text(rdfXml);
         Prism.highlightElement(document.getElementById('xmlCode'));
         $('#xmlPanel').removeClass('d-none');
+        updateQueryFeatureState(lastValidationData);
     }
 
     function setInputMode(mode) {
@@ -700,13 +1084,26 @@
         const savedXml = localStorage.getItem(XML_STORAGE_KEY);
         if (savedXml) {
             $('#rdfXmlInput').val(savedXml);
+            currentRdfXmlText = savedXml;
         }
 
         const savedMode = localStorage.getItem(MODE_STORAGE_KEY) || 'uri';
         setInputMode(savedMode);
 
+        $('#xpathQueryInput').val(DEFAULT_XPATH_QUERY);
+        $('#sparqlQueryInput').val(DEFAULT_SPARQL_QUERY);
+
         $('#inputModeTabs .nav-link').on('click', function () {
             setInputMode($(this).data('mode'));
+        });
+
+        $('#queryModeTabs .nav-link').on('click', function () {
+            const mode = $(this).data('query-mode');
+            $('#queryModeTabs .nav-link').removeClass('active');
+            $(this).addClass('active');
+
+            $('#paneXPath').toggleClass('d-none', mode !== 'xpath');
+            $('#paneSparql').toggleClass('d-none', mode !== 'sparql');
         });
 
         $('#ddbUri').on('input', function () {
@@ -715,11 +1112,32 @@
 
         $('#rdfXmlInput').on('input', function () {
             localStorage.setItem(XML_STORAGE_KEY, $(this).val());
+            currentRdfXmlText = $(this).val();
+        });
+
+        $('#runXPathBtn').on('click', function () {
+            runXPathQuery();
+        });
+
+        $('#runSparqlBtn').on('click', function () {
+            runSparqlQuery();
+        });
+
+        $('#loadXPathExampleBtn').on('click', function () {
+            $('#xpathQueryInput').val(DEFAULT_XPATH_QUERY);
+        });
+
+        $('#loadSparqlExampleBtn').on('click', function () {
+            $('#sparqlQueryInput').val(DEFAULT_SPARQL_QUERY);
         });
 
         $('#clearXmlBtn').on('click', function () {
             $('#rdfXmlInput').val('');
+            currentRdfXmlText = '';
             localStorage.removeItem(XML_STORAGE_KEY);
+            clearQueryResult($('#xpathQueryResult'), 'Noch keine XPath-Abfrage ausgeführt.');
+            clearQueryResult($('#sparqlQueryResult'), 'Noch keine SPARQL-Abfrage ausgeführt.');
+            updateQueryFeatureState(null);
         });
 
         $('#resetGraphViewBtn').on('click', function () {
@@ -812,6 +1230,7 @@
                         addResultItem('API-URL', data.apiUrl);
                     }
                     addResultItem('XML-Syntax bestanden', data.xmlSyntaxPassed ? 'Ja' : 'Nein');
+                    addResultItem('EDM-XSD bestanden', data.edmXsdPassed ? 'Ja' : 'Nein');
                     addResultItem('RDF-Syntax bestanden', data.rdfSyntaxPassed ? 'Ja' : 'Nein');
                     addResultItem('SHACL bestanden', data.shaclPassed ? 'Ja' : 'Nein');
                     if (Array.isArray(data.graphNodes) && Array.isArray(data.graphLinks)) {
@@ -829,6 +1248,7 @@
                     }
 
                     $('#details').removeClass('d-none');
+                    updateQueryFeatureState(data);
                     renderGraph(data);
                     renderXml(data.rdfXml);
                 } finally {
