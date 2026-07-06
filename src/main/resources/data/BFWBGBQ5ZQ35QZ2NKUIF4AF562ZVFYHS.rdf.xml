@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<rdf:RDF
+  xmlns:ddb="http://www.deutsche-digitale-bibliothek.de/edm/"
+  xmlns:item="http://www.deutsche-digitale-bibliothek.de/item"
+  xmlns:lido="http://www.lido-schema.org"
+  xmlns:ns14="http://www.deutsche-digitale-bibliothek.de/ns/cortex-item-source"
+  xmlns:ns15="http://www.deutsche-digitale-bibliothek.de/ns/cortex-item-source-description"
+  xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  xmlns:wgs84_pos="http://www.w3.org/2003/01/geo/wgs84_pos#">
+  <ore:Aggregation
+    rdf:about="https://www.example.org/64EWATHEI65PYD3HURJUU4SFM4ZBCU2V"
+    xmlns:ore="http://www.openarchives.org/ore/terms/">
+    <edm:aggregatedCHO
+      rdf:resource="http://www.deutsche-digitale-bibliothek.de/item/BFWBGBQ5ZQ35QZ2NKUIF4AF562ZVFYHS"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <edm:dataProvider
+      xmlns:edm="http://www.europeana.eu/schemas/edm/">Staatliche Schlösser, Burgen und Gärten Sachsen. Schloss Weesenstein</edm:dataProvider>
+    <edm:dataProvider
+      rdf:resource="http://www.deutsche-digitale-bibliothek.de/organization/B24B2NSPAQ2H5PTG3IIB5JQN4UKLD3CW"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <edm:isShownAt
+      rdf:resource="https://sachsen.museum-digital.de/object/124961"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <edm:isShownBy
+      rdf:resource="https://asset.museum-digital.org/sachsen/images/115/124961-wee_in_005888/zeichnung_aquarell_aus_sc/zeichnung-aquarell-aus-schloSs-weesenstein-mit-ansicht-vom-amor-psyche-zimmer-124961-102863.jpg"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <edm:object
+      rdf:resource="https://asset.museum-digital.org/sachsen/images/115/124961-wee_in_005888/zeichnung_aquarell_aus_sc/zeichnung-aquarell-aus-schloSs-weesenstein-mit-ansicht-vom-amor-psyche-zimmer-124961-102863.jpg"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <edm:provider
+      xmlns:edm="http://www.europeana.eu/schemas/edm/">Deutsche Digitale Bibliothek</edm:provider>
+    <edm:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/"
+      xmlns:edm="http://www.europeana.eu/schemas/edm/" />
+    <dcterms:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+  </ore:Aggregation>
+  <edm:WebResource
+    rdf:about="https://sachsen.museum-digital.de/object/124961"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/"
+    xmlns:marcrel="http://id.loc.gov/vocabulary/relators.html">
+    <dc:rights
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Staatliche Schlösser, Burgen und Gärten Sachsen gGmbH, Schloss Weesenstein</dc:rights>
+    <edm:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/" />
+    <dc:type
+      rdf:resource="http://ddb.vocnet.org/medientyp/mt002"
+      xmlns:dc="http://purl.org/dc/elements/1.1/" />
+    <dcterms:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dc:creator
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Höhler, Frank (foto + form)</dc:creator>
+  </edm:WebResource>
+  <skos:Concept
+    rdf:about="http://ddb.vocnet.org/medientyp/mt002"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:notation>mediatype_002</skos:notation>
+  </skos:Concept>
+  <edm:WebResource
+    rdf:about="https://asset.museum-digital.org/sachsen/images/115/124961-wee_in_005888/zeichnung_aquarell_aus_sc/zeichnung-aquarell-aus-schloSs-weesenstein-mit-ansicht-vom-amor-psyche-zimmer-124961-102863.jpg"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/"
+    xmlns:marcrel="http://id.loc.gov/vocabulary/relators.html">
+    <dc:rights
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Staatliche Schlösser, Burgen und Gärten Sachsen gGmbH, Schloss Weesenstein</dc:rights>
+    <edm:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/" />
+    <dc:type
+      rdf:resource="http://ddb.vocnet.org/medientyp/mt002"
+      xmlns:dc="http://purl.org/dc/elements/1.1/" />
+    <dcterms:rights
+      rdf:resource="http://creativecommons.org/licenses/by-nc-sa/4.0/"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dc:creator
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Höhler, Frank (foto + form)</dc:creator>
+  </edm:WebResource>
+  <skos:Concept
+    rdf:about="http://ddb.vocnet.org/medientyp/mt002"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:notation>mediatype_002</skos:notation>
+  </skos:Concept>
+  <edm:Agent
+    rdf:about="http://www.deutsche-digitale-bibliothek.de/organization/B24B2NSPAQ2H5PTG3IIB5JQN4UKLD3CW"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <skos:prefLabel
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Staatliche Schlösser, Burgen und Gärten Sachsen. Schloss Weesenstein</skos:prefLabel>
+    <rdf:type
+      rdf:resource="http://ddb.vocnet.org/sparte/sparte006" />
+    <dcterms:isPartOf
+      rdf:resource="http://www.deutsche-digitale-bibliothek.de/organization/VVME4OQWXITL5YPEJSXUDCK6PGKWHNGD"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+  </edm:Agent>
+  <skos:Concept
+    rdf:about="http://ddb.vocnet.org/sparte/sparte006"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:notation>sec_06</skos:notation>
+  </skos:Concept>
+  <edm:Agent
+    rdf:about="http://www.deutsche-digitale-bibliothek.de/organization/VVME4OQWXITL5YPEJSXUDCK6PGKWHNGD"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <skos:prefLabel
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Staatliche Schlösser, Burgen und Gärten Sachsen gGmbH</skos:prefLabel>
+  </edm:Agent>
+  <edm:Agent
+    rdf:about="http://d-nb.info/gnd/129078417"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <skos:prefLabel
+      xml:lang="de"
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Georg Nerlich (1892-1982)</skos:prefLabel>
+  </edm:Agent>
+  <skos:Concept
+    rdf:about="https://vocab.getty.edu/page/aat/300033973"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="de">Zeichnung</skos:prefLabel>
+  </skos:Concept>
+  <edm:ProvidedCHO
+    rdf:about="http://www.deutsche-digitale-bibliothek.de/item/BFWBGBQ5ZQ35QZ2NKUIF4AF562ZVFYHS"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <edm:currentLocation
+      rdf:resource="https://www.example.org/Z2JSPE6PJX255DKLQYAMVRSCLAY2VRQK" />
+    <edm:hasMet
+      rdf:resource="https://www.example.org/DEOSVWB32LVCDFKS2P7Y7UOF6MPR37PC" />
+    <edm:hasType
+      rdf:resource="https://d-nb.info/gnd/4127900-1" />
+    <edm:type>IMAGE</edm:type>
+    <dc:creator
+      rdf:resource="http://d-nb.info/gnd/129078417"
+      xml:lang="zxx"
+      xmlns:dc="http://purl.org/dc/elements/1.1/" />
+    <dc:description
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Im Schloss Weesenstein, das im 19. Jahrhundert im Besitz der sächsischen Königsfamilie war, hat sich einer großer Teil des Originalbestandes erhalten.
+      Dieses Aquarell zeigt eine Ansicht vom Amor &amp; Psyche-Zimmer (Eckzimmer nach dem Garten) Es ist unten links sign./ dat.; verso bet. "Aus Schloß Weesenstein"</dc:description>
+    <dc:identifier
+      xmlns:dc="http://purl.org/dc/elements/1.1/">WEE_IN_005888 (Inventarnummer)</dc:identifier>
+    <dc:format
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Aquarellfarbe, Papier (Material/Technik)</dc:format>
+    <dc:relation
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Schloss Weesenstein</dc:relation>
+    <dc:relation
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Schlösserland Sachsen</dc:relation>
+    <dc:relation
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Wissensportal des Schlösserlands Sachsen</dc:relation>
+    <dc:relation
+      xmlns:dc="http://purl.org/dc/elements/1.1/">is documented in: Autorenkollektiv (2014): Schloss Weesenstein. Heimliche Residenz der Wettiner. Geschichte und Ausstattung. Dresden</dc:relation>
+    <dc:rights
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Staatliche Schlösser, Burgen und Gärten Sachsen gGmbH, Schloss Weesenstein</dc:rights>
+    <dc:type
+      rdf:resource="https://vocab.getty.edu/page/aat/300033973"
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/" />
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Aquarell</dc:subject>
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Inneneinrichtung</dc:subject>
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Interieur</dc:subject>
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Zeichnung (Kunst)</dc:subject>
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Zimmer</dc:subject>
+    <dc:subject
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Schloss Weesenstein</dc:subject>
+    <dc:title
+      xml:lang="ger"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">Zeichnung: Aquarell "Aus Schloß Weesenstein" mit Ansicht vom Amor &amp; Psyche-Zimmer</dc:title>
+    <dcterms:subject
+      rdf:resource="https://www.example.org/MULQ54KEAE35BXRF4SWLLCYJ2LC45EME"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:subject
+      rdf:resource="https://www.example.org/DPW6VI5PURFL5PTEJXD7FKB7ED7MRJIO"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:subject
+      rdf:resource="https://www.example.org/MBXJ7F2PQD5MSQN46E4UBFL2NRPB2TOY"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:subject
+      rdf:resource="https://www.example.org/BDBEMMUUQELJONMN6SRLSK2X3KKFCPL3"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:subject
+      rdf:resource="https://www.example.org/VJAXZA6M7LJ5MO4OPYUJC5BUTVTNV5MA"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:subject
+      rdf:resource="https://www.example.org/TSRDDUKERPEXQE4P2WY6MEB3PNQYG4P6"
+      xmlns:dcterms="http://purl.org/dc/terms/" />
+    <dcterms:extent
+      xml:lang="zxx"
+      xmlns:dcterms="http://purl.org/dc/terms/">H x B in cm: 44,5 x 59,5</dcterms:extent>
+    <dcterms:created
+      xmlns:dcterms="http://purl.org/dc/terms/">1949-01-01-1949-12-31 (Herstellung)</dcterms:created>
+  </edm:ProvidedCHO>
+  <skos:Concept
+    rdf:about="https://d-nb.info/gnd/4127900-1"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="de">Zeichnung</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept
+    rdf:about="https://www.example.org/MULQ54KEAE35BXRF4SWLLCYJ2LC45EME"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="ger">Aquarell</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept
+    rdf:about="https://www.example.org/DPW6VI5PURFL5PTEJXD7FKB7ED7MRJIO"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="ger">Inneneinrichtung</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept
+    rdf:about="https://www.example.org/MBXJ7F2PQD5MSQN46E4UBFL2NRPB2TOY"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="ger">Interieur</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept
+    rdf:about="https://www.example.org/BDBEMMUUQELJONMN6SRLSK2X3KKFCPL3"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="ger">Zeichnung (Kunst)</skos:prefLabel>
+  </skos:Concept>
+  <skos:Concept
+    rdf:about="https://www.example.org/VJAXZA6M7LJ5MO4OPYUJC5BUTVTNV5MA"
+    xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+    <skos:prefLabel
+      xml:lang="ger">Zimmer</skos:prefLabel>
+  </skos:Concept>
+  <edm:Place
+    rdf:about="https://www.example.org/TSRDDUKERPEXQE4P2WY6MEB3PNQYG4P6"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/"
+    xmlns:exslt="http://exslt.org/common">
+    <skos:prefLabel
+      xml:lang="ger"
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Schloss Weesenstein</skos:prefLabel>
+  </edm:Place>
+  <edm:Event
+    rdf:about="https://www.example.org/DEOSVWB32LVCDFKS2P7Y7UOF6MPR37PC"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <edm:hasType
+      rdf:resource="http://terminology.lido-schema.org/lido00007" />
+    <crm:P11_had_participant
+      rdf:resource="http://d-nb.info/gnd/129078417"
+      xmlns:crm="http://www.cidoc-crm.org/rdfs/cidoc_crm_v5.0.2_english_label.rdfs#" />
+    <edm:occuredAt
+      rdf:resource="https://www.example.org/UG55YBXXIQDFUXQJWODTUBL4YW65XLPZ" />
+  </edm:Event>
+  <edm:Agent
+    rdf:about="http://d-nb.info/gnd/129078417"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <skos:prefLabel
+      xml:lang="zxx"
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Georg Nerlich</skos:prefLabel>
+    <edm:wasPresentAt
+      rdf:resource="https://www.example.org/DEOSVWB32LVCDFKS2P7Y7UOF6MPR37PC" />
+  </edm:Agent>
+  <edm:TimeSpan
+    rdf:about="https://www.example.org/UG55YBXXIQDFUXQJWODTUBL4YW65XLPZ"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/">
+    <edm:begin>1949-01-01</edm:begin>
+    <edm:end>1949-12-31</edm:end>
+  </edm:TimeSpan>
+  <edm:Place
+    rdf:about="https://www.example.org/Z2JSPE6PJX255DKLQYAMVRSCLAY2VRQK"
+    xmlns:edm="http://www.europeana.eu/schemas/edm/"
+    xmlns:exslt="http://exslt.org/common">
+    <skos:prefLabel
+      xml:lang="ger"
+      xmlns:skos="http://www.w3.org/2004/02/skos/core#">Müglitztal / OT Weesenstein</skos:prefLabel>
+  </edm:Place>
+</rdf:RDF>

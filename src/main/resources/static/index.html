@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DDB EDM/RDF Validator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
+    <style>
+        .app-shell {
+            max-width: 100%;
+        }
+
+        .input-tab-pane {
+            display: none;
+        }
+
+        .input-tab-pane.active {
+            display: block;
+        }
+
+        .rdf-textarea {
+            min-height: 420px;
+            height: min(56vh, 720px);
+            font-family: Consolas, "Courier New", monospace;
+            white-space: pre;
+            resize: vertical;
+        }
+
+        .xml-scroll-box {
+            max-height: 72vh;
+            min-height: 420px;
+        }
+
+        .graph-canvas {
+            width: 100%;
+            height: 620px;
+            border: 1px solid #25314a;
+            border-radius: .5rem;
+            background: radial-gradient(circle at 20% 20%, #1a2235 0%, #0b1220 100%);
+            box-shadow: inset 0 0 24px rgba(0, 0, 0, .35);
+        }
+
+        .graph-full-bleed {
+            width: 100dvw;
+            margin-left: calc(50% - 50dvw);
+            margin-right: calc(50% - 50dvw);
+            border-left: 0;
+            border-right: 0;
+            border-radius: 0;
+        }
+
+        .graph-inner-wrap {
+            max-width: 100%;
+            padding-left: .5rem;
+            padding-right: .5rem;
+        }
+
+        @media (min-width: 768px) {
+            .graph-inner-wrap {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+        }
+
+        .graph-legend-dot {
+            display: inline-block;
+            width: .8rem;
+            height: .8rem;
+            border-radius: 50%;
+            margin-right: .35rem;
+            vertical-align: middle;
+        }
+
+        .graph-summary {
+            color: #6c757d;
+            font-size: .9rem;
+        }
+
+        .graph-context {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: .5rem;
+            padding: .75rem;
+            font-size: .9rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        @media (min-width: 1400px) {
+            .xml-scroll-box {
+                min-height: 68vh;
+            }
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container-fluid app-shell px-0 py-2 py-md-3">
+    <div class="row g-0">
+        <div class="col-12 p-0">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-2 p-md-3 p-xl-3">
+                    <h1 class="h3 mb-3">DDB EDM/RDF Validator</h1>
+                    <p class="text-secondary mb-4">
+                        Entweder DDB-URL prüfen oder eigenes RDF/XML einfügen und direkt validieren.
+                    </p>
+
+                    <ul class="nav nav-tabs mb-3" id="inputModeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" type="button" data-mode="uri">DDB-URL</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" type="button" data-mode="xml">RDF/XML einfügen</button>
+                        </li>
+                    </ul>
+
+                    <form id="validationForm" class="row g-3">
+                        <div id="paneUri" class="input-tab-pane active col-12">
+                            <label for="ddbUri" class="form-label">DDB-URI</label>
+                            <input
+                                    id="ddbUri"
+                                    name="ddbUri"
+                                    type="url"
+                                    class="form-control"
+                                    placeholder="https://www.deutsche-digitale-bibliothek.de/item/...">
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" value="" id="europeanaProfile">
+                                <label class="form-check-label" for="europeanaProfile">
+                                    Europeana-Profil (https://www.deutsche-digitale-bibliothek.de/ns/europeana-edm-profile)
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="paneXml" class="input-tab-pane col-12">
+                            <label for="rdfXmlInput" class="form-label">RDF/XML</label>
+                            <textarea
+                                    id="rdfXmlInput"
+                                    name="rdfXmlInput"
+                                    class="form-control rdf-textarea"
+                                    spellcheck="false"
+                                    placeholder="Hier RDF/XML einfügen ..."></textarea>
+                        </div>
+
+                        <div class="col-12 d-grid d-sm-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Validierung starten</button>
+                            <button type="button" id="clearXmlBtn" class="btn btn-outline-secondary">Textarea löschen</button>
+                        </div>
+                    </form>
+
+                    <div id="result" class="alert mt-4 d-none" role="alert"></div>
+
+                    <div id="checklist" class="mt-3 d-none">
+                        <h2 class="h6 mb-2">Abschnitte</h2>
+                        <ul id="checklistItems" class="list-group"></ul>
+                    </div>
+
+                    <div id="details" class="card mt-3 d-none">
+                        <div class="card-body">
+                            <h2 class="h6">Parser- und SHACL-Ergebnisse</h2>
+                            <ul class="list-group list-group-flush" id="resultList"></ul>
+                        </div>
+                    </div>
+
+                    <div id="graphPanel" class="card mt-3 d-none graph-full-bleed">
+                        <div class="card-body graph-inner-wrap">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                <h2 class="h6 mb-0">RDF-Graph (3D)</h2>
+                                <button type="button" id="resetGraphViewBtn" class="btn btn-sm btn-outline-secondary">Ansicht zurücksetzen</button>
+                            </div>
+                            <p class="text-secondary mb-2">Interaktive 3D-Ansicht der Tripel (Knoten = Subjekt/Objekt, Kanten = Prädikate).</p>
+                            <div class="row g-2 mb-2 align-items-end">
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label mb-1" for="filterNodeClass">Klassenfokus</label>
+                                    <select id="filterNodeClass" class="form-select form-select-sm">
+                                        <option value="all">Alle Klassen</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label mb-1" for="filterPredicateText">Prädikat enthält</label>
+                                    <input id="filterPredicateText" type="text" class="form-control form-control-sm" placeholder="z. B. type, rights, subject">
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <div class="form-check form-switch mt-1">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="filterHideLiterals">
+                                        <label class="form-check-label" for="filterHideLiterals">Literale ausblenden</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="filterOnlyEdm">
+                                        <label class="form-check-label" for="filterOnlyEdm">Nur edm:* Kanten</label>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-3 d-grid d-md-flex justify-content-md-end">
+                                    <button type="button" id="resetGraphFilterBtn" class="btn btn-sm btn-outline-secondary">Filter zurücksetzen</button>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-3 mb-2 small">
+                                <span><span class="graph-legend-dot" style="background:#4ea1ff"></span>IRI</span>
+                                <span><span class="graph-legend-dot" style="background:#ff8a5b"></span>Blank Node</span>
+                                <span><span class="graph-legend-dot" style="background:#ff5f7a"></span>Literal</span>
+                            </div>
+                            <div id="graphSummary" class="graph-summary mb-2">Kein Graph geladen.</div>
+                            <div id="rdfGraph3d" class="graph-canvas"></div>
+                            <div class="mt-3">
+                                <h3 class="h6 mb-2">Knoten-Details</h3>
+                                <div id="graphContext" class="graph-context">Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="xmlPanel" class="card mt-3 d-none">
+                        <div class="card-body d-flex flex-column">
+                            <h2 class="h6 mb-2">RDF/XML</h2>
+                            <div class="border rounded overflow-auto xml-scroll-box">
+                                <pre class="line-numbers mb-0"><code id="xmlCode" class="language-markup"></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://unpkg.com/3d-force-graph"></script>
+<script>
+    const URI_STORAGE_KEY = 'ddb-edm-validator-uri';
+    const XML_STORAGE_KEY = 'ddb-edm-validator-xml';
+    const MODE_STORAGE_KEY = 'ddb-edm-validator-input-mode';
+    let rdfGraphInstance = null;
+    let graphState = null;
+
+    function buildValueHtml(value) {
+        if (typeof value === 'string' && value.startsWith('http')) {
+            return '<a href="' + value + '" target="_blank" rel="noopener noreferrer">' + value + '</a>';
+        }
+        return $('<div>').text(String(value)).html();
+    }
+
+    function setResult(type, text) {
+        $('#result')
+            .removeClass('d-none alert-success alert-warning alert-danger alert-info')
+            .addClass('alert-' + type)
+            .text(text);
+    }
+
+    function addResultItem(label, value) {
+        $('#resultList').append(
+            '<li class="list-group-item d-flex justify-content-between align-items-start gap-3">' +
+            '<span class="text-secondary">' + label + '</span>' +
+            '<span class="text-break text-end">' + buildValueHtml(value) + '</span>' +
+            '</li>'
+        );
+    }
+
+    function addResultBlock(item) {
+        const statusBadge = item.success ?
+            '<span class="badge text-bg-success">OK</span>' :
+            '<span class="badge text-bg-danger">Fehler</span>';
+
+        let html =
+            '<li class="list-group-item">' +
+            '<div class="d-flex justify-content-between align-items-center gap-2 mb-2">' +
+            '<div><strong>' + item.section + '</strong> - ' + item.engine + '</div>' +
+            statusBadge +
+            '</div>';
+
+        if (item.originalMessage) {
+            html += '<div><span class="text-secondary">Originalmeldung:</span></div>' +
+                '<pre class="bg-light border rounded p-2 mt-1 mb-0" style="white-space: pre-wrap;"><code>' + $('<div>').text(item.originalMessage).html() + '</code></pre>';
+        }
+        if (item.explanation) {
+            html += '<div><span class="text-secondary">Erklärung:</span> ' + $('<div>').text(item.explanation).html() + '</div>';
+        }
+        if (item.line || item.column) {
+            html += '<div><span class="text-secondary">Position:</span> Zeile ' + (item.line ?? '-') + ', Spalte ' + (item.column ?? '-') + '</div>';
+        }
+        if (item.lineSnippet) {
+            html += '<pre class="bg-light border rounded p-2 mt-2 mb-0"><code>' + $('<div>').text(item.lineSnippet).html() + '</code></pre>';
+        }
+        if (item.metricValue !== null && item.metricValue !== undefined && item.metricLabel) {
+            html += '<div><span class="text-secondary">' + item.metricLabel + ':</span> ' + item.metricValue + '</div>';
+        }
+
+        html += '</li>';
+        $('#resultList').append(html);
+    }
+
+    function renderChecklist(data) {
+        const isLocalXml = !data.apiUrl;
+        const checks = [
+            {
+                label: isLocalXml ? 'RDF/XML lokal übergeben' : 'URL-Muster gültig',
+                ok: isLocalXml ? !!data.rdfXml : !!data.patternValid
+            },
+            {
+                label: isLocalXml ? 'Kein API-Download nötig' : 'RDF/XML von DDB API geladen',
+                ok: isLocalXml ? true : !!data.downloadSuccessful
+            },
+            { label: '(1) XML-Syntax', ok: !!data.xmlSyntaxPassed },
+            { label: '(2) RDF-Syntax', ok: !!data.rdfSyntaxPassed },
+            { label: '(3) SHACL', ok: !!data.shaclPassed }
+        ];
+
+        const $items = $('#checklistItems').empty();
+        checks.forEach(function (check) {
+            const badgeClass = check.ok ? 'text-bg-success' : 'text-bg-danger';
+            const badgeText = check.ok ? 'OK' : 'Fehlgeschlagen';
+            const icon = check.ok ? '✓' : '✗';
+            $items.append(
+                '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+                '<span>' + icon + ' ' + check.label + '</span>' +
+                '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
+                '</li>'
+            );
+        });
+
+        $('#checklist').removeClass('d-none');
+    }
+
+    function renderXml(rdfXml) {
+        if (!rdfXml) {
+            $('#xmlCode').text('');
+            $('#xmlPanel').addClass('d-none');
+            return;
+        }
+
+        $('#xmlCode').text(rdfXml);
+        Prism.highlightElement(document.getElementById('xmlCode'));
+        $('#xmlPanel').removeClass('d-none');
+    }
+
+    function setInputMode(mode) {
+        const finalMode = mode === 'xml' ? 'xml' : 'uri';
+        $('#inputModeTabs .nav-link').removeClass('active');
+        $('#inputModeTabs .nav-link[data-mode="' + finalMode + '"]').addClass('active');
+
+        $('.input-tab-pane').removeClass('active');
+        if (finalMode === 'xml') {
+            $('#paneXml').addClass('active');
+        } else {
+            $('#paneUri').addClass('active');
+        }
+
+        localStorage.setItem(MODE_STORAGE_KEY, finalMode);
+    }
+
+    function hideGraph() {
+        $('#graphPanel').addClass('d-none');
+        $('#graphSummary').text('Kein Graph geladen.');
+        $('#graphContext').text('Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.');
+        graphState = null;
+    }
+
+    function hashText(text) {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+            hash = ((hash << 5) - hash) + text.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash);
+    }
+
+    function predicateColor(predicate) {
+        const hue = hashText(predicate || 'predicate') % 360;
+        return 'hsl(' + hue + ', 80%, 65%)';
+    }
+
+    function graphNodeColor(node) {
+        if (node.nodeType === 'Literal') {
+            return '#ff5f7a';
+        }
+        if (node.nodeType === 'BlankNode') {
+            return '#ff8a5b';
+        }
+        return '#4ea1ff';
+    }
+
+    function shortNodeId(id) {
+        if (!id) {
+            return '(leer)';
+        }
+        const hashPos = id.lastIndexOf('#');
+        if (hashPos >= 0 && hashPos < id.length - 1) {
+            return id.substring(hashPos + 1);
+        }
+        const slashPos = id.lastIndexOf('/');
+        if (slashPos >= 0 && slashPos < id.length - 1) {
+            return id.substring(slashPos + 1);
+        }
+        if (id.length > 64) {
+            return id.substring(0, 61) + '...';
+        }
+        return id;
+    }
+
+    function prepareGraphState(nodes, links) {
+        const nodeMap = new Map();
+        const inLinks = new Map();
+        const outLinks = new Map();
+        const predicateCount = new Map();
+
+        nodes.forEach(function (node) {
+            const clone = Object.assign({}, node);
+            clone.shortId = shortNodeId(clone.id);
+            clone.degree = 0;
+            nodeMap.set(clone.id, clone);
+            inLinks.set(clone.id, []);
+            outLinks.set(clone.id, []);
+        });
+
+        links.forEach(function (link) {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+
+            if (!nodeMap.has(sourceId) || !nodeMap.has(targetId)) {
+                return;
+            }
+
+            outLinks.get(sourceId).push(link);
+            inLinks.get(targetId).push(link);
+
+            nodeMap.get(sourceId).degree += 1;
+            nodeMap.get(targetId).degree += 1;
+
+            const p = link.predicate || '(unbekannt)';
+            predicateCount.set(p, (predicateCount.get(p) || 0) + 1);
+        });
+
+        const preparedNodes = Array.from(nodeMap.values());
+        const topPredicates = Array.from(predicateCount.entries())
+            .sort(function (a, b) { return b[1] - a[1]; })
+            .slice(0, 5)
+            .map(function (entry) { return entry[0] + ' (' + entry[1] + ')'; });
+
+        return {
+            nodes: preparedNodes,
+            links: links,
+            nodeMap: nodeMap,
+            inLinks: inLinks,
+            outLinks: outLinks,
+            topPredicates: topPredicates
+        };
+    }
+
+    function populateClassFilter(nodes) {
+        const classSet = new Set();
+        nodes.forEach(function (node) {
+            if (!Array.isArray(node.classes)) {
+                return;
+            }
+            node.classes.forEach(function (clazz) {
+                if (clazz) {
+                    classSet.add(clazz);
+                }
+            });
+        });
+
+        const classes = Array.from(classSet).sort();
+        const $select = $('#filterNodeClass');
+        $select.empty();
+        $select.append('<option value="all">Alle Klassen</option>');
+        classes.forEach(function (clazz) {
+            $select.append('<option value="' + $('<div>').text(clazz).html() + '">' + $('<div>').text(clazz).html() + '</option>');
+        });
+    }
+
+    function resetGraphFilters() {
+        $('#filterNodeClass').val('all');
+        $('#filterPredicateText').val('');
+        $('#filterHideLiterals').prop('checked', false);
+        $('#filterOnlyEdm').prop('checked', false);
+    }
+
+    function applyGraphFilters() {
+        if (!rdfGraphInstance || !graphState) {
+            return;
+        }
+
+        const selectedClass = $('#filterNodeClass').val() || 'all';
+        const predicateNeedle = ($('#filterPredicateText').val() || '').trim().toLowerCase();
+        const hideLiterals = $('#filterHideLiterals').is(':checked');
+        const onlyEdm = $('#filterOnlyEdm').is(':checked');
+
+        const visibleNodeIds = new Set();
+        const filteredLinks = [];
+
+        graphState.links.forEach(function (link) {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+
+            const sourceNode = graphState.nodeMap.get(sourceId);
+            const targetNode = graphState.nodeMap.get(targetId);
+            if (!sourceNode || !targetNode) {
+                return;
+            }
+
+            if (hideLiterals && (sourceNode.nodeType === 'Literal' || targetNode.nodeType === 'Literal')) {
+                return;
+            }
+
+            if (selectedClass !== 'all') {
+                const sourceHas = Array.isArray(sourceNode.classes) && sourceNode.classes.includes(selectedClass);
+                const targetHas = Array.isArray(targetNode.classes) && targetNode.classes.includes(selectedClass);
+                if (!sourceHas && !targetHas) {
+                    return;
+                }
+            }
+
+            if (onlyEdm) {
+                const predUri = (link.predicateUri || '').toLowerCase();
+                if (!predUri.includes('/schemas/edm/')) {
+                    return;
+                }
+            }
+
+            if (predicateNeedle) {
+                const predLabel = (link.predicate || '').toLowerCase();
+                const predUri = (link.predicateUri || '').toLowerCase();
+                if (!predLabel.includes(predicateNeedle) && !predUri.includes(predicateNeedle)) {
+                    return;
+                }
+            }
+
+            filteredLinks.push(link);
+            visibleNodeIds.add(sourceId);
+            visibleNodeIds.add(targetId);
+        });
+
+        const filteredNodes = graphState.nodes.filter(function (node) {
+            return visibleNodeIds.has(node.id);
+        });
+
+        rdfGraphInstance.graphData({ nodes: filteredNodes, links: filteredLinks });
+        $('#graphSummary').text(
+            'Knoten: ' + filteredNodes.length +
+            ' | Kanten: ' + filteredLinks.length +
+            ' | Häufige Prädikate: ' + (graphState.topPredicates.length ? graphState.topPredicates.join(', ') : '-')
+        );
+    }
+
+    function nodeTooltip(node) {
+        return 'Typ: ' + node.nodeType + '\n' +
+            'Knoten: ' + node.shortId + '\n' +
+            'Grad: ' + (node.degree || 0) + '\n' +
+            'ID: ' + node.id;
+    }
+
+    function renderNodeContext(node) {
+        if (!graphState) {
+            return;
+        }
+        const inCount = (graphState.inLinks.get(node.id) || []).length;
+        const outCount = (graphState.outLinks.get(node.id) || []).length;
+
+        const outgoingPredicates = Array.from(new Set((graphState.outLinks.get(node.id) || []).map(function (l) { return l.predicate; }))).slice(0, 6);
+        const incomingPredicates = Array.from(new Set((graphState.inLinks.get(node.id) || []).map(function (l) { return l.predicate; }))).slice(0, 6);
+
+        const contextLines = [
+            'Typ: ' + node.nodeType,
+            'ID: ' + node.id,
+            'Grad: ' + (node.degree || 0),
+            'Ausgehende Kanten: ' + outCount,
+            'Eingehende Kanten: ' + inCount,
+            '',
+            'Ausgehende Prädikate: ' + (outgoingPredicates.length ? outgoingPredicates.join(', ') : '-'),
+            'Eingehende Prädikate: ' + (incomingPredicates.length ? incomingPredicates.join(', ') : '-')
+        ];
+
+        $('#graphContext').text(contextLines.join('\n'));
+    }
+
+    function renderGraph(data) {
+        const nodes = Array.isArray(data.graphNodes) ? data.graphNodes : [];
+        const links = Array.isArray(data.graphLinks) ? data.graphLinks : [];
+
+        if (!nodes.length || !links.length) {
+            hideGraph();
+            return;
+        }
+
+        const graphContainer = document.getElementById('rdfGraph3d');
+
+        graphState = prepareGraphState(nodes, links);
+        const preparedNodes = graphState.nodes;
+        populateClassFilter(preparedNodes);
+        resetGraphFilters();
+
+        $('#graphSummary').text(
+            'Knoten: ' + preparedNodes.length +
+            ' | Kanten: ' + links.length +
+            ' | Häufige Prädikate: ' + (graphState.topPredicates.length ? graphState.topPredicates.join(', ') : '-')
+        );
+        $('#graphContext').text('Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.');
+
+        $('#graphPanel').removeClass('d-none');
+
+        window.requestAnimationFrame(function () {
+            const width = Math.max(320, Math.floor(graphContainer.getBoundingClientRect().width || 0));
+            const height = Math.max(460, Math.floor(graphContainer.getBoundingClientRect().height || 620));
+
+            if (!rdfGraphInstance) {
+                rdfGraphInstance = ForceGraph3D()(graphContainer)
+                    .backgroundColor('#0b1220')
+                    .nodeLabel(function (node) {
+                        return nodeTooltip(node);
+                    })
+                    .nodeColor(graphNodeColor)
+                    .nodeVal(function (node) {
+                        const base = node.nodeType === 'IRI' ? 3.8 : 2.8;
+                        const degree = Math.max(0, node.degree || 0);
+                        return base + Math.min(8, Math.sqrt(degree));
+                    })
+                    .linkDirectionalParticles(2)
+                    .linkDirectionalParticleWidth(1.4)
+                    .linkDirectionalParticleSpeed(0.006)
+                    .linkOpacity(0.7)
+                    .linkWidth(function (link) {
+                        const predicate = (link.predicate || '').toLowerCase();
+                        if (predicate.includes('type')) {
+                            return 2.2;
+                        }
+                        return 1.2;
+                    })
+                    .linkColor(function (link) {
+                        return predicateColor(link.predicate || 'predicate');
+                    })
+                    .linkLabel(function (link) {
+                        return link.predicate;
+                    })
+                    .onNodeClick(function (node) {
+                        renderNodeContext(node);
+                    })
+                    .width(width)
+                    .height(height);
+            }
+
+            rdfGraphInstance
+                .width(width)
+                .height(height)
+                .graphData({ nodes: preparedNodes, links: links });
+
+            applyGraphFilters();
+
+            rdfGraphInstance.zoomToFit(600, 80);
+        });
+    }
+
+    $(function () {
+        const savedUri = localStorage.getItem(URI_STORAGE_KEY);
+        if (savedUri) {
+            $('#ddbUri').val(savedUri);
+        }
+
+        const savedXml = localStorage.getItem(XML_STORAGE_KEY);
+        if (savedXml) {
+            $('#rdfXmlInput').val(savedXml);
+        }
+
+        const savedMode = localStorage.getItem(MODE_STORAGE_KEY) || 'uri';
+        setInputMode(savedMode);
+
+        $('#inputModeTabs .nav-link').on('click', function () {
+            setInputMode($(this).data('mode'));
+        });
+
+        $('#ddbUri').on('input', function () {
+            localStorage.setItem(URI_STORAGE_KEY, $(this).val().trim());
+        });
+
+        $('#rdfXmlInput').on('input', function () {
+            localStorage.setItem(XML_STORAGE_KEY, $(this).val());
+        });
+
+        $('#clearXmlBtn').on('click', function () {
+            $('#rdfXmlInput').val('');
+            localStorage.removeItem(XML_STORAGE_KEY);
+        });
+
+        $('#resetGraphViewBtn').on('click', function () {
+            if (rdfGraphInstance) {
+                rdfGraphInstance.zoomToFit(600, 80);
+            }
+        });
+
+        $('#resetGraphFilterBtn').on('click', function () {
+            resetGraphFilters();
+            applyGraphFilters();
+        });
+
+        $('#filterNodeClass, #filterPredicateText, #filterHideLiterals, #filterOnlyEdm').on('input change', function () {
+            applyGraphFilters();
+        });
+
+        $(window).on('resize', function () {
+            if (!rdfGraphInstance) {
+                return;
+            }
+            const graphContainer = document.getElementById('rdfGraph3d');
+            const width = Math.max(320, Math.floor(graphContainer.getBoundingClientRect().width || 0));
+            const height = Math.max(460, Math.floor(graphContainer.getBoundingClientRect().height || 620));
+            if (width > 0) {
+                rdfGraphInstance.width(width).height(height);
+            }
+        });
+
+        $('#validationForm').on('submit', async function (event) {
+            event.preventDefault();
+
+            const inputMode = localStorage.getItem(MODE_STORAGE_KEY) || 'uri';
+            const ddbUri = $('#ddbUri').val().trim();
+            const rdfXml = $('#rdfXmlInput').val();
+            const europeanaProfile = $('#europeanaProfile').is(':checked');
+
+            if (inputMode === 'uri' && !ddbUri) {
+                setResult('danger', 'Bitte eine DDB-URI eingeben.');
+                return;
+            }
+            if (inputMode === 'xml' && !rdfXml.trim()) {
+                setResult('danger', 'Bitte RDF/XML in die Textarea einfügen.');
+                return;
+            }
+
+            setResult('info', 'Sende Anfrage an Backend …');
+            $('#checklist').addClass('d-none');
+            $('#checklistItems').empty();
+            $('#details').addClass('d-none');
+            $('#resultList').empty();
+            hideGraph();
+            renderXml(null);
+
+            try {
+                const response = await fetch('./api/validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ddbUri: inputMode === 'uri' ? ddbUri : null,
+                        rdfXml: inputMode === 'xml' ? rdfXml : null,
+                        europeanaProfile: inputMode === 'uri' ? europeanaProfile : false
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Backend-Antwort war nicht erfolgreich.');
+                }
+
+                const successful = !!data.overallPassed;
+                setResult(successful ? 'success' : 'warning', data.message || 'Validierung abgeschlossen');
+                renderChecklist(data);
+
+                addResultItem('Eingabe-URL', data.inputUrl || '-');
+                if (data.apiUrl) {
+                    addResultItem('API-URL', data.apiUrl);
+                }
+                addResultItem('XML-Syntax bestanden', data.xmlSyntaxPassed ? 'Ja' : 'Nein');
+                addResultItem('RDF-Syntax bestanden', data.rdfSyntaxPassed ? 'Ja' : 'Nein');
+                addResultItem('SHACL bestanden', data.shaclPassed ? 'Ja' : 'Nein');
+                if (Array.isArray(data.graphNodes) && Array.isArray(data.graphLinks)) {
+                    addResultItem('Graph-Knoten', data.graphNodes.length);
+                    addResultItem('Graph-Kanten', data.graphLinks.length);
+                }
+                if (data.error) {
+                    addResultItem('Fehler', data.error);
+                }
+
+                if (Array.isArray(data.results)) {
+                    data.results.forEach(function (item) {
+                        addResultBlock(item);
+                    });
+                }
+
+                $('#details').removeClass('d-none');
+                renderGraph(data);
+                renderXml(data.rdfXml);
+            } catch (error) {
+                setResult('danger', 'Fehler: ' + error.message);
+                hideGraph();
+            }
+        });
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+</body>
+</html>
