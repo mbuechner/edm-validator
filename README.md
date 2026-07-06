@@ -4,7 +4,7 @@ Validator für EDM/RDF-Daten der Deutschen Digitalen Bibliothek auf Basis von Sp
 
 ## Voraussetzungen
 
-- Java 21 LTS
+- Java 25
 - Maven 3.9+
 
 ## Starten
