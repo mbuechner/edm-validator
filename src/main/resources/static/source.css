@@ -1,0 +1,10 @@
+/* Shared source typography; Bootstrap supplies the surrounding components. */
+.source-code,
+.source-code code,
+.source-code textarea,
+.source-code .line-numbers-rows {
+    font-family: var(--bs-font-monospace, monospace) !important;
+    font-size: .75rem !important;
+    line-height: 1.4 !important;
+    tab-size: 4;
+}

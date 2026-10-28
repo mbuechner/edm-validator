@@ -3,165 +3,54 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DDB EDM/RDF Validator</title>
+    <title>Validierung · DDB EDM/RDF</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet">
     <style>
-        .app-shell {
-            max-width: 100%;
-        }
-
-        .input-tab-pane {
-            display: none;
-        }
-
-        .input-tab-pane.active {
-            display: block;
-        }
-
-        .rdf-textarea {
-            min-height: 420px;
-            height: min(56vh, 720px);
-            font-family: Consolas, "Courier New", monospace;
-            white-space: pre;
-            resize: vertical;
-        }
-
-        .query-textarea {
-            min-height: 150px;
-            height: min(26vh, 280px);
-            font-family: Consolas, "Courier New", monospace;
-            white-space: pre;
-            resize: vertical;
-        }
-
-        .query-result-box {
-            min-height: 96px;
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: .5rem;
-            padding: .75rem;
-            font-size: .95rem;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .query-result-table {
-            margin-bottom: 0;
-        }
-
-        .query-result-table th,
-        .query-result-table td {
-            vertical-align: top;
-        }
-
-        .query-mode-disabled {
-            opacity: .58;
-        }
-
-        .query-mode-disabled .form-label,
-        .query-mode-disabled .small,
-        .query-mode-disabled .badge {
-            color: inherit;
-        }
-
-        .xml-scroll-box {
-            max-height: 72vh;
-            min-height: 420px;
-        }
-
-        .graph-canvas {
-            width: 100%;
-            height: 620px;
-            border: 1px solid #25314a;
-            border-radius: .5rem;
-            background: radial-gradient(circle at 20% 20%, #1a2235 0%, #0b1220 100%);
-            box-shadow: inset 0 0 24px rgba(0, 0, 0, .35);
-        }
-
-        .graph-full-bleed {
-            width: 100dvw;
-            margin-left: calc(50% - 50dvw);
-            margin-right: calc(50% - 50dvw);
-            border-left: 0;
-            border-right: 0;
-            border-radius: 0;
-        }
-
-        .graph-inner-wrap {
-            max-width: 100%;
-            padding-left: .5rem;
-            padding-right: .5rem;
-        }
-
-        @media (min-width: 768px) {
-            .graph-inner-wrap {
-                padding-left: 1rem;
-                padding-right: 1rem;
-            }
-        }
-
-        .graph-legend-dot {
-            display: inline-block;
-            width: .8rem;
-            height: .8rem;
-            border-radius: 50%;
-            margin-right: .35rem;
-            vertical-align: middle;
-        }
-
-        .graph-summary {
-            color: #6c757d;
-            font-size: .9rem;
-        }
-
-        .graph-context {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: .5rem;
-            padding: .75rem;
-            font-size: .9rem;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        @media (min-width: 1400px) {
-            .xml-scroll-box {
-                min-height: 68vh;
-            }
-        }
+        .xml-scroll-box { max-height: 72vh; }
+        .query-result-box, #graphContext { white-space: pre-wrap; }
     </style>
+    <link href="./source.css" rel="stylesheet">
 </head>
-<body class="bg-light">
-<div class="container-fluid app-shell px-0 py-2 py-md-3">
-    <div class="row g-0">
-        <div class="col-12 p-0">
-            <div class="card shadow-sm border-0">
-                <div class="card-body p-2 p-md-3 p-xl-3">
-                    <h1 class="h3 mb-3">DDB EDM/RDF Validator</h1>
-                    <p class="text-secondary mb-4">
-                        Entweder DDB-URL prüfen oder eigenes RDF/XML einfügen und direkt validieren.
-                    </p>
-
-                    <ul class="nav nav-tabs mb-3" id="inputModeTabs" role="tablist">
-                        <li class="nav-item" role="presentation">
+<body class="bg-body-tertiary">
+    <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom" aria-label="Werkzeuge">
+        <div class="container-fluid px-3 px-lg-4">
+            <a class="navbar-brand" href="./">DDB EDM/RDF</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Navigation öffnen">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="mainNavbar">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item"><a class="nav-link active" id="showValidator" href="./" aria-current="page">Validierung</a></li>
+                    <li class="nav-item"><a class="nav-link" id="showConverter" href="./converter.html">RDF-Konverter</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <main id="mainContent" class="container-fluid px-3 px-lg-4 py-4 w-100">
+        <section id="pageMessages" class="sticky-top" aria-label="Meldungen">
+            <div id="result" class="d-none" role="status" aria-live="polite" aria-atomic="true"></div>
+        </section>
+        <header class="mb-4">
+            <h1 class="h3 mb-1">DDB EDM/RDF Validator</h1>
+            <p class="text-body-secondary mb-0">DDB-Dokumente und eigenes RDF/XML validieren.</p>
+        </header>
+        <div id="validatorWorkspace" class="w-100">
+            <ul class="nav nav-tabs mb-3" id="inputModeTabs" role="tablist">
+                <li class="nav-item" role="presentation">
                             <button class="nav-link active" type="button" data-mode="uri">DDB-URL</button>
                         </li>
-                        <li class="nav-item" role="presentation">
+                <li class="nav-item" role="presentation">
                             <button class="nav-link" type="button" data-mode="xml">RDF/XML einfügen</button>
                         </li>
-                    </ul>
-
-                    <form id="validationForm" class="row g-3">
-                        <div id="paneUri" class="input-tab-pane active col-12">
+            </ul>
+            <div class="card mb-4">
+                <div class="card-body p-3 p-md-4">
+                    <form id="validationForm" class="row g-3 tab-content">
+                        <div id="paneUri" class="input-tab-pane active col-12 tab-pane">
                             <label for="ddbUri" class="form-label">DDB-URI</label>
-                            <input
-                                    id="ddbUri"
-                                    name="ddbUri"
-                                    type="url"
-                                    class="form-control"
-                                    placeholder="https://www.deutsche-digitale-bibliothek.de/item/...">
+                            <input id="ddbUri" name="ddbUri" type="url" class="form-control" placeholder="https://www.deutsche-digitale-bibliothek.de/item/...">
                             <div class="form-check mt-2">
                                 <input class="form-check-input" type="checkbox" value="" id="europeanaProfile">
                                 <label class="form-check-label" for="europeanaProfile">
@@ -169,154 +58,134 @@
                                 </label>
                             </div>
                         </div>
-
-                        <div id="paneXml" class="input-tab-pane col-12">
+                        <div id="paneXml" class="input-tab-pane col-12 tab-pane">
                             <label for="rdfXmlInput" class="form-label">RDF/XML</label>
-                            <textarea
-                                    id="rdfXmlInput"
-                                    name="rdfXmlInput"
-                                    class="form-control rdf-textarea"
-                                    spellcheck="false"
-                                    placeholder="Hier RDF/XML einfügen ..."></textarea>
+                            <textarea id="rdfXmlInput" name="rdfXmlInput" class="source-code form-control font-monospace" spellcheck="false" placeholder="Hier RDF/XML einfügen ..." rows="18"></textarea>
                         </div>
-
                         <div class="col-12 d-grid d-sm-flex gap-2">
                             <button type="submit" class="btn btn-primary">Validierung starten</button>
                             <button type="button" id="clearXmlBtn" class="btn btn-outline-secondary">Textarea löschen</button>
                         </div>
                     </form>
-
-                    <div id="result" class="alert mt-4 d-none" role="alert"></div>
-
-                    <div id="checklist" class="mt-3 d-none">
-                        <h2 class="h6 mb-2">Abschnitte</h2>
-                        <ul id="checklistItems" class="list-group"></ul>
+                </div>
+            </div>
+            <div id="checklist" class="mt-3 d-none">
+                <h2 class="h6 mb-2">Abschnitte</h2>
+                <ul id="checklistItems" class="list-group"></ul>
+            </div>
+            <div id="details" class="card mt-3 d-none">
+                <div class="card-body">
+                    <h2 class="h6">Parser- und SHACL-Ergebnisse</h2>
+                    <ul class="list-group list-group-flush" id="resultList"></ul>
+                </div>
+            </div>
+            <div id="graphPanel" class="card mt-3 d-none w-100 mw-100 mx-0">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <h2 class="h6 mb-0">RDF-Graph (3D)</h2>
+                        <button type="button" id="resetGraphViewBtn" class="btn btn-sm btn-outline-secondary">Ansicht zurücksetzen</button>
                     </div>
-
-                    <div id="details" class="card mt-3 d-none">
-                        <div class="card-body">
-                            <h2 class="h6">Parser- und SHACL-Ergebnisse</h2>
-                            <ul class="list-group list-group-flush" id="resultList"></ul>
-                        </div>
-                    </div>
-
-                    <div id="graphPanel" class="card mt-3 d-none graph-full-bleed">
-                        <div class="card-body graph-inner-wrap">
-                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                                <h2 class="h6 mb-0">RDF-Graph (3D)</h2>
-                                <button type="button" id="resetGraphViewBtn" class="btn btn-sm btn-outline-secondary">Ansicht zurücksetzen</button>
-                            </div>
-                            <p class="text-secondary mb-2">Interaktive 3D-Ansicht der Tripel (Knoten = Subjekt/Objekt, Kanten = Prädikate).</p>
-                            <div class="row g-2 mb-2 align-items-end">
-                                <div class="col-12 col-md-3">
-                                    <label class="form-label mb-1" for="filterNodeClass">Klassenfokus</label>
-                                    <select id="filterNodeClass" class="form-select form-select-sm">
+                    <p class="text-secondary mb-2">Interaktive 3D-Ansicht der Tripel (Knoten = Subjekt/Objekt, Kanten = Prädikate).</p>
+                    <div class="row g-2 mb-2 align-items-end">
+                        <div class="col-12 col-md-3">
+                            <label class="form-label mb-1" for="filterNodeClass">Klassenfokus</label>
+                            <select id="filterNodeClass" class="form-select form-select-sm">
                                         <option value="all">Alle Klassen</option>
                                     </select>
-                                </div>
-                                <div class="col-12 col-md-3">
-                                    <label class="form-label mb-1" for="filterPredicateText">Prädikat enthält</label>
-                                    <input id="filterPredicateText" type="text" class="form-control form-control-sm" placeholder="z. B. type, rights, subject">
-                                </div>
-                                <div class="col-12 col-md-3">
-                                    <div class="form-check form-switch mt-1">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="filterHideLiterals">
-                                        <label class="form-check-label" for="filterHideLiterals">Literale ausblenden</label>
-                                    </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="filterOnlyEdm">
-                                        <label class="form-check-label" for="filterOnlyEdm">Nur edm:* Kanten</label>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-3 d-grid d-md-flex justify-content-md-end">
-                                    <button type="button" id="resetGraphFilterBtn" class="btn btn-sm btn-outline-secondary">Filter zurücksetzen</button>
-                                </div>
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <label class="form-label mb-1" for="filterPredicateText">Prädikat enthält</label>
+                            <input id="filterPredicateText" type="text" class="form-control form-control-sm" placeholder="z. B. type, rights, subject">
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <div class="form-check form-switch mt-1">
+                                <input class="form-check-input" type="checkbox" role="switch" id="filterHideLiterals">
+                                <label class="form-check-label" for="filterHideLiterals">Literale ausblenden</label>
                             </div>
-                            <div class="d-flex flex-wrap gap-3 mb-2 small">
-                                <span><span class="graph-legend-dot" style="background:#4ea1ff"></span>IRI</span>
-                                <span><span class="graph-legend-dot" style="background:#ff8a5b"></span>Blank Node</span>
-                                <span><span class="graph-legend-dot" style="background:#ff5f7a"></span>Literal</span>
-                            </div>
-                            <div id="graphSummary" class="graph-summary mb-2">Kein Graph geladen.</div>
-                            <div id="rdfGraph3d" class="graph-canvas"></div>
-                            <div class="mt-3">
-                                <h3 class="h6 mb-2">Knoten-Details</h3>
-                                <div id="graphContext" class="graph-context">Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.</div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="filterOnlyEdm">
+                                <label class="form-check-label" for="filterOnlyEdm">Nur edm:* Kanten</label>
                             </div>
                         </div>
+                        <div class="col-12 col-md-3 d-grid d-md-flex justify-content-md-end">
+                            <button type="button" id="resetGraphFilterBtn" class="btn btn-sm btn-outline-secondary">Filter zurücksetzen</button>
+                        </div>
                     </div>
-
-                    <div id="xmlPanel" class="card mt-3 d-none">
-                        <div class="card-body d-flex flex-column">
-                            <h2 class="h6 mb-2">RDF/XML</h2>
-                            <div class="border rounded overflow-auto xml-scroll-box">
-                                <pre class="line-numbers mb-0"><code id="xmlCode" class="language-markup"></code></pre>
+                    <div class="d-flex flex-wrap gap-3 mb-2 small">
+                        <span><span class="me-1" style="color: rgb(78, 161, 255);" aria-hidden="true">●</span>IRI</span>
+                        <span><span class="me-1" style="color: rgb(255, 138, 91);" aria-hidden="true">●</span>Blank Node</span>
+                        <span><span class="me-1" style="color: rgb(255, 95, 122);" aria-hidden="true">●</span>Literal</span>
+                    </div>
+                    <div id="graphSummary" class="mb-2 small text-secondary">Kein Graph geladen.</div>
+                    <div id="rdfGraph3d" class="w-100 border rounded overflow-hidden bg-dark"></div>
+                    <div class="mt-3">
+                        <h3 class="h6 mb-2">Knoten-Details</h3>
+                        <div id="graphContext" class="bg-body-tertiary border rounded p-3 small text-break">Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.</div>
+                    </div>
+                </div>
+            </div>
+            <div id="xmlPanel" class="card mt-3 d-none">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <h2 class="h6 mb-0">RDF/XML</h2>
+                        <a id="convertDisplayedXml" href="./converter.html" class="btn btn-sm btn-outline-primary">Im RDF-Konverter öffnen</a>
+                    </div>
+                    <div class="border rounded overflow-auto xml-scroll-box">
+                        <pre class="source-code line-numbers mb-0"><code id="xmlCode" class="language-markup"></code></pre>
+                    </div>
+                    <div class="card mt-3 border-0 shadow-sm">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                <h3 class="h6 mb-0">Client-seitige Abfragen</h3>
+                                <span class="badge text-bg-secondary">Nur im Browser</span>
                             </div>
-                            <div class="card mt-3 border-0 shadow-sm">
-                                <div class="card-body">
-                                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                                        <h3 class="h6 mb-0">Client-seitige Abfragen</h3>
-                                        <span class="badge text-bg-secondary">Nur im Browser</span>
-                                    </div>
-                                    <p id="queryAvailabilityMessage" class="text-secondary small mb-3">
+                            <p id="queryAvailabilityMessage" class="text-secondary small mb-3">
                                         Die Abfragen werden nach der serverseitigen Validierung freigeschaltet.
                                     </p>
-
-                                    <ul class="nav nav-pills gap-2 mb-3" id="queryModeTabs" role="tablist">
-                                        <li class="nav-item" role="presentation">
+                            <ul class="nav nav-pills gap-2 mb-3" id="queryModeTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
                                             <button class="nav-link active" type="button" data-query-mode="xpath">XPath</button>
                                         </li>
-                                        <li class="nav-item" role="presentation">
+                                <li class="nav-item" role="presentation">
                                             <button class="nav-link" type="button" data-query-mode="sparql">SPARQL</button>
                                         </li>
-                                    </ul>
-
-                                    <div id="paneXPath" class="query-tab-pane active">
-                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
-                                            <label for="xpathQueryInput" class="form-label mb-0">XPath</label>
-                                            <span id="xpathQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
-                                        </div>
-                                        <textarea
-                                                id="xpathQueryInput"
-                                                class="form-control query-textarea mb-2"
-                                                spellcheck="false"
-                                                placeholder="//*[local-name()='title']"></textarea>
-                                        <div class="d-flex flex-wrap gap-2 mb-3">
-                                            <button type="button" id="runXPathBtn" class="btn btn-outline-primary">XPath ausführen</button>
-                                            <button type="button" id="loadXPathExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
-                                        </div>
-                                        <div id="xpathQueryResult" class="query-result-box">Noch keine XPath-Abfrage ausgeführt.</div>
-                                    </div>
-
-                                    <div id="paneSparql" class="query-tab-pane d-none">
-                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
-                                            <label for="sparqlQueryInput" class="form-label mb-0">SPARQL</label>
-                                            <span id="sparqlQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
-                                        </div>
-                                        <textarea
-                                                id="sparqlQueryInput"
-                                                class="form-control query-textarea mb-2"
-                                                spellcheck="false"
-                                                placeholder="PREFIX rdf: &lt;http://www.w3.org/1999/02/22-rdf-syntax-ns#&gt;&#10;SELECT ?s ?p ?o&#10;WHERE { ?s ?p ?o . }"></textarea>
-                                        <div class="d-flex flex-wrap gap-2 mb-3">
-                                            <button type="button" id="runSparqlBtn" class="btn btn-outline-primary">SPARQL ausführen</button>
-                                            <button type="button" id="loadSparqlExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
-                                        </div>
-                                        <div id="sparqlQueryResult" class="query-result-box">Noch keine SPARQL-Abfrage ausgeführt.</div>
-                                    </div>
+                            </ul>
+                            <div id="paneXPath" class="query-tab-pane active">
+                                <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                    <label for="xpathQueryInput" class="form-label mb-0">XPath</label>
+                                    <span id="xpathQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
                                 </div>
+                                <textarea id="xpathQueryInput" class="source-code form-control mb-2 font-monospace" spellcheck="false" placeholder="//*[local-name()='title']" rows="6"></textarea>
+                                <div class="d-flex flex-wrap gap-2 mb-3">
+                                    <button type="button" id="runXPathBtn" class="btn btn-outline-primary">XPath ausführen</button>
+                                    <button type="button" id="loadXPathExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
+                                </div>
+                                <div id="xpathQueryResult" class="query-result-box bg-body-tertiary border rounded p-3 small text-break">Noch keine XPath-Abfrage ausgeführt.</div>
+                            </div>
+                            <div id="paneSparql" class="query-tab-pane d-none">
+                                <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                    <label for="sparqlQueryInput" class="form-label mb-0">SPARQL</label>
+                                    <span id="sparqlQueryStateBadge" class="badge text-bg-secondary">Gesperrt</span>
+                                </div>
+                                <textarea id="sparqlQueryInput" class="source-code form-control mb-2 font-monospace" spellcheck="false" placeholder="PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ?s ?p ?o
+WHERE { ?s ?p ?o . }" rows="6"></textarea>
+                                <div class="d-flex flex-wrap gap-2 mb-3">
+                                    <button type="button" id="runSparqlBtn" class="btn btn-outline-primary">SPARQL ausführen</button>
+                                    <button type="button" id="loadSparqlExampleBtn" class="btn btn-outline-secondary">Beispiel laden</button>
+                                </div>
+                                <div id="sparqlQueryResult" class="query-result-box bg-body-tertiary border rounded p-3 small text-break">Noch keine SPARQL-Abfrage ausgeführt.</div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-<script src="https://unpkg.com/3d-force-graph"></script>
-<script>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="./messages.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script>
     const URI_STORAGE_KEY = 'ddb-edm-validator-uri';
     const XML_STORAGE_KEY = 'ddb-edm-validator-xml';
     const MODE_STORAGE_KEY = 'ddb-edm-validator-input-mode';
@@ -339,6 +208,8 @@ WHERE {
 }`;
     let rdfGraphInstance = null;
     let graphState = null;
+    let graphLibraryPromise = null;
+    let graphRenderRevision = 0;
     let rdflibModulePromise = null;
     let currentRdfXmlText = '';
     let lastValidationData = null;
@@ -351,10 +222,12 @@ WHERE {
     }
 
     function setResult(type, text) {
-        $('#result')
-            .removeClass('d-none alert-success alert-warning alert-danger alert-info')
-            .addClass('alert-' + type)
-            .text(text);
+        const target = document.getElementById('result');
+        if (window.AppMessages) window.AppMessages.show(target, type, text);
+        else {
+            target.className = 'alert alert-' + type;
+            target.textContent = text;
+        }
     }
 
     function addResultItem(label, value) {
@@ -380,7 +253,7 @@ WHERE {
 
         if (item.originalMessage) {
             html += '<div><span class="text-secondary">Originalmeldung:</span></div>' +
-                '<pre class="bg-light border rounded p-2 mt-1 mb-0" style="white-space: pre-wrap;"><code>' + $('<div>').text(item.originalMessage).html() + '</code></pre>';
+                '<pre class="source-code bg-light border rounded p-2 mt-1 mb-0" style="white-space: pre-wrap;"><code>' + $('<div>').text(item.originalMessage).html() + '</code></pre>';
         }
         if (item.explanation) {
             html += '<div><span class="text-secondary">Erklärung:</span> ' + $('<div>').text(item.explanation).html() + '</div>';
@@ -389,7 +262,7 @@ WHERE {
             html += '<div><span class="text-secondary">Position:</span> Zeile ' + (item.line ?? '-') + ', Spalte ' + (item.column ?? '-') + '</div>';
         }
         if (item.lineSnippet) {
-            html += '<pre class="bg-light border rounded p-2 mt-2 mb-0"><code>' + $('<div>').text(item.lineSnippet).html() + '</code></pre>';
+            html += '<pre class="source-code bg-light border rounded p-2 mt-2 mb-0"><code>' + $('<div>').text(item.lineSnippet).html() + '</code></pre>';
         }
         if (item.metricValue !== null && item.metricValue !== undefined && item.metricLabel) {
             html += '<div><span class="text-secondary">' + item.metricLabel + ':</span> ' + item.metricValue + '</div>';
@@ -428,7 +301,7 @@ WHERE {
         const loadSelector = mode === 'sparql' ? '#loadSparqlExampleBtn' : '#loadXPathExampleBtn';
 
         $(paneSelector)
-            .toggleClass('query-mode-disabled', !enabled)
+            .toggleClass('opacity-50', !enabled)
             .attr('aria-disabled', String(!enabled));
 
         $(badgeSelector)
@@ -597,7 +470,7 @@ WHERE {
             }
 
             $result.html('<strong>XPath-Treffer:</strong><ul class="mb-0 mt-2">' + rows.map(function (entry) {
-                return '<li><code>' + $('<div>').text(entry).html() + '</code></li>';
+                return '<li><code class="source-code">' + $('<div>').text(entry).html() + '</code></li>';
             }).join('') + '</ul>');
         } catch (error) {
             clearQueryResult($result, buildXPathErrorMessage(error));
@@ -645,12 +518,12 @@ WHERE {
 
             if (columns.length === 0) {
                 $result.html('<strong>SPARQL-Treffer:</strong><ul class="mb-0 mt-2">' + rows.map(function (binding) {
-                    return '<li><code>' + $('<div>').text(JSON.stringify(binding, null, 2)).html() + '</code></li>';
+                    return '<li><code class="source-code">' + $('<div>').text(JSON.stringify(binding, null, 2)).html() + '</code></li>';
                 }).join('') + '</ul>');
                 return;
             }
 
-            const tableHtml = '<div class="table-responsive mt-2"><table class="table table-sm table-striped align-middle query-result-table"><thead><tr>' +
+            const tableHtml = '<div class="table-responsive mt-2"><table class="table table-sm table-striped align-top mb-0"><thead><tr>' +
                 columns.map(function (column) {
                     return '<th>' + $('<div>').text(column).html() + '</th>';
                 }).join('') +
@@ -775,10 +648,58 @@ WHERE {
     }
 
     function hideGraph() {
+        graphRenderRevision++;
         $('#graphPanel').addClass('d-none');
         $('#graphSummary').text('Kein Graph geladen.');
         $('#graphContext').text('Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.');
         graphState = null;
+    }
+
+    function loadGraphLibrary() {
+        if (typeof window.ForceGraph3D === 'function') {
+            return Promise.resolve(window.ForceGraph3D);
+        }
+        if (!graphLibraryPromise) {
+            graphLibraryPromise = new Promise(function (resolve, reject) {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/3d-force-graph';
+                script.async = true;
+                const timeout = window.setTimeout(function () {
+                    fail();
+                }, 30000);
+                function finish() {
+                    window.clearTimeout(timeout);
+                    script.onload = null;
+                    script.onerror = null;
+                }
+                function fail() {
+                    finish();
+                    script.remove();
+                    reject(new Error('Die 3D-Ansicht konnte nicht geladen werden.'));
+                }
+                script.onload = function () {
+                    if (typeof window.ForceGraph3D !== 'function') {
+                        fail();
+                        return;
+                    }
+                    finish();
+                    resolve(window.ForceGraph3D);
+                };
+                script.onerror = fail;
+                document.head.append(script);
+            }).catch(function (error) {
+                graphLibraryPromise = null;
+                throw error;
+            });
+        }
+        return graphLibraryPromise;
+    }
+
+    function showGraphUnavailable() {
+        graphState = null;
+        $('#rdfGraph3d').addClass('d-none');
+        $('#graphSummary').text('3D-Ansicht nicht verfügbar.');
+        $('#graphContext').text('Die Validierung und XML-Ansicht bleiben verfügbar. Starten Sie die Validierung erneut, um die 3D-Ansicht noch einmal zu laden.');
     }
 
     function hashText(text) {
@@ -999,7 +920,8 @@ WHERE {
         $('#graphContext').text(contextLines.join('\n'));
     }
 
-    function renderGraph(data) {
+    async function renderGraph(data) {
+        const renderRevision = ++graphRenderRevision;
         const nodes = Array.isArray(data.graphNodes) ? data.graphNodes : [];
         const links = Array.isArray(data.graphLinks) ? data.graphLinks : [];
 
@@ -1009,6 +931,16 @@ WHERE {
         }
 
         const graphContainer = document.getElementById('rdfGraph3d');
+        $('#graphSummary').text('3D-Ansicht wird geladen …');
+        $('#graphPanel').removeClass('d-none');
+        let createGraph;
+        try {
+            createGraph = await loadGraphLibrary();
+        } catch (error) {
+            if (renderRevision === graphRenderRevision) showGraphUnavailable();
+            return;
+        }
+        if (renderRevision !== graphRenderRevision) return;
 
         graphState = prepareGraphState(nodes, links);
         const preparedNodes = graphState.nodes;
@@ -1022,56 +954,61 @@ WHERE {
         );
         $('#graphContext').text('Klicke im Graph auf einen Knoten, um Kontextinformationen zu sehen.');
 
-        $('#graphPanel').removeClass('d-none');
+        $('#rdfGraph3d').removeClass('d-none');
 
         window.requestAnimationFrame(function () {
-            const width = Math.max(320, Math.floor(graphContainer.getBoundingClientRect().width || 0));
-            const height = Math.max(460, Math.floor(graphContainer.getBoundingClientRect().height || 620));
+            if (renderRevision !== graphRenderRevision) return;
+            try {
+                const width = Math.max(320, Math.floor(graphContainer.getBoundingClientRect().width || 0));
+                const height = Math.max(460, Math.floor(graphContainer.getBoundingClientRect().height || 620));
 
-            if (!rdfGraphInstance) {
-                rdfGraphInstance = ForceGraph3D()(graphContainer)
-                    .backgroundColor('#0b1220')
-                    .nodeLabel(function (node) {
-                        return nodeTooltip(node);
-                    })
-                    .nodeColor(graphNodeColor)
-                    .nodeVal(function (node) {
-                        const base = node.nodeType === 'IRI' ? 3.8 : 2.8;
-                        const degree = Math.max(0, node.degree || 0);
-                        return base + Math.min(8, Math.sqrt(degree));
-                    })
-                    .linkDirectionalParticles(2)
-                    .linkDirectionalParticleWidth(1.4)
-                    .linkDirectionalParticleSpeed(0.006)
-                    .linkOpacity(0.7)
-                    .linkWidth(function (link) {
-                        const predicate = (link.predicate || '').toLowerCase();
-                        if (predicate.includes('type')) {
-                            return 2.2;
-                        }
-                        return 1.2;
-                    })
-                    .linkColor(function (link) {
-                        return predicateColor(link.predicate || 'predicate');
-                    })
-                    .linkLabel(function (link) {
-                        return link.predicate;
-                    })
-                    .onNodeClick(function (node) {
-                        renderNodeContext(node);
-                    })
+                if (!rdfGraphInstance) {
+                    rdfGraphInstance = createGraph()(graphContainer)
+                        .backgroundColor('#0b1220')
+                        .nodeLabel(function (node) {
+                            return nodeTooltip(node);
+                        })
+                        .nodeColor(graphNodeColor)
+                        .nodeVal(function (node) {
+                            const base = node.nodeType === 'IRI' ? 3.8 : 2.8;
+                            const degree = Math.max(0, node.degree || 0);
+                            return base + Math.min(8, Math.sqrt(degree));
+                        })
+                        .linkDirectionalParticles(2)
+                        .linkDirectionalParticleWidth(1.4)
+                        .linkDirectionalParticleSpeed(0.006)
+                        .linkOpacity(0.7)
+                        .linkWidth(function (link) {
+                            const predicate = (link.predicate || '').toLowerCase();
+                            if (predicate.includes('type')) {
+                                return 2.2;
+                            }
+                            return 1.2;
+                        })
+                        .linkColor(function (link) {
+                            return predicateColor(link.predicate || 'predicate');
+                        })
+                        .linkLabel(function (link) {
+                            return link.predicate;
+                        })
+                        .onNodeClick(function (node) {
+                            renderNodeContext(node);
+                        })
+                        .width(width)
+                        .height(height);
+                }
+
+                rdfGraphInstance
                     .width(width)
-                    .height(height);
+                    .height(height)
+                    .graphData({ nodes: preparedNodes, links: links });
+
+                applyGraphFilters();
+
+                rdfGraphInstance.zoomToFit(600, 80);
+            } catch (error) {
+                if (renderRevision === graphRenderRevision) showGraphUnavailable();
             }
-
-            rdfGraphInstance
-                .width(width)
-                .height(height)
-                .graphData({ nodes: preparedNodes, links: links });
-
-            applyGraphFilters();
-
-            rdfGraphInstance.zoomToFit(600, 80);
         });
     }
 
@@ -1267,8 +1204,9 @@ WHERE {
         });
     });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <script src="./navigation.js"></script>
 </body>
 </html>
