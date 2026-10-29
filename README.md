@@ -33,13 +33,14 @@ target/edm-validator.jar
 
 Danach im Browser oeffnen:
 
-- Explorer: http://localhost:8080/app/edm-validator/explorer.html
-- Validierung: http://localhost:8080/app/edm-validator
+- Explorer (Startseite): http://localhost:8080/app/edm-validator/
+- Validierung: http://localhost:8080/app/edm-validator/validation.html
 - Query: http://localhost:8080/app/edm-validator/query.html
 - Konverter: http://localhost:8080/app/edm-validator/converter.html
 
 Alle vier Werkzeuge sind eigenständige Seiten mit einem gemeinsamen
-Menü. Sie nutzen die gesamte verfügbare Bildschirmbreite. Die Menülinks und
+Menü. Der Explorer ist als `index.html` die statische Startseite.
+Sie nutzen die gesamte verfügbare Bildschirmbreite. Die Menülinks und
 API-Aufrufe funktionieren auch unter einem anders konfigurierten Basispfad.
 Die Seitentitel nennen Werkzeug, Anwendung und DDBpro. Die Navbar verwendet das
 originale DDBpro-Logo; auf kleinen Bildschirmen erscheint dessen DDB-Signet.

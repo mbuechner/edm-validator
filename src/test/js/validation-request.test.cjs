@@ -15,7 +15,7 @@ if (JSDOM) {
     const result = {overallPassed: true, xmlSyntaxPassed: true, edmXsdPassed: true, rdfSyntaxPassed: true,
         shaclPassed: true, results: [], message: 'Validierung erfolgreich'};
     function harness(t) {
-        const dom = new JSDOM(read('index.html'), {url: 'https://validator.example/app/edm-validator/', runScripts: 'outside-only'});
+        const dom = new JSDOM(read('validation.html'), {url: 'https://validator.example/app/edm-validator/validation.html', runScripts: 'outside-only'});
         const {window} = dom;
         t.after(() => window.close());
         window.eval(read('messages.js'));

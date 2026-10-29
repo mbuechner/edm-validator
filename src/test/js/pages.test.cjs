@@ -14,7 +14,7 @@ catch (error) {
 
 if (JSDOM) {
     const read = name => fs.readFileSync(path.join(root, 'src/main/resources/static', name), 'utf8');
-    const pages = {validation: 'index.html', explorer: 'explorer.html', query: 'query.html', converter: 'converter.html'};
+    const pages = {validation: 'validation.html', explorer: 'index.html', query: 'query.html', converter: 'converter.html'};
     const bundles = path.join(root, 'target/bootstrap.bundle.min.js');
     const bootstrapCssPath = path.join(root, 'target/bootstrap.min.css');
     const bootstrapCss = fs.existsSync(bootstrapCssPath) ? fs.readFileSync(bootstrapCssPath, 'utf8') :
@@ -22,7 +22,7 @@ if (JSDOM) {
     const xml = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="https://example.org/a"/></rdf:RDF>';
 
     function page(t, name, base = '/app/edm-validator/') {
-        const dom = new JSDOM(read(pages[name]), {url: 'https://validator.example' + base + pages[name], runScripts: 'outside-only'});
+        const dom = new JSDOM(read(pages[name]), {url: 'https://validator.example' + base + (name === 'explorer' ? '' : pages[name]), runScripts: 'outside-only'});
         t.after(() => dom.window.close());
         return dom.window;
     }
@@ -41,10 +41,10 @@ if (JSDOM) {
                 assert.ok(navbar);
                 const links = [...navbar.querySelectorAll('.navbar-nav a')];
                 assert.deepEqual(links.map(link => link.textContent), ['Explorer', 'Validierung', 'Query', 'Konverter']);
-                assert.deepEqual(links.map(link => link.href), ['explorer.html', '', 'query.html', 'converter.html'].map(target => 'https://validator.example' + base + target));
+                assert.deepEqual(links.map(link => link.href), ['', 'validation.html', 'query.html', 'converter.html'].map(target => 'https://validator.example' + base + target));
                 const active = links.filter(link => link.getAttribute('aria-current') === 'page');
                 assert.equal(active.length, 1);
-                assert.equal(active[0].getAttribute('href'), name === 'validation' ? './' : './' + file);
+                assert.equal(active[0].getAttribute('href'), name === 'explorer' ? './' : './' + file);
                 assert.equal(document.querySelector('h1').textContent, active[0].textContent);
                 assert.ok(document.title.startsWith(active[0].textContent + ' ·'));
                 assert.ok(document.title.endsWith(' · EDM-Werkzeuge · DDBpro'));

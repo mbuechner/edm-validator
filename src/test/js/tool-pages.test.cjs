@@ -15,7 +15,8 @@ if (JSDOM) {
         '<rdf:Description rdf:about="item"><dc:title>A &amp; B</dc:title></rdf:Description></rdf:RDF>';
     const flush = () => new Promise(resolve => setImmediate(resolve));
     function page(t, name, initial = xml) {
-        const dom = new JSDOM(read(name + '.html'), {url: 'https://validator.example/custom/tools/' + name + '.html', runScripts: 'outside-only'});
+        const file = name === 'explorer' ? 'index.html' : name + '.html';
+        const dom = new JSDOM(read(file), {url: 'https://validator.example/custom/tools/' + (name === 'explorer' ? '' : file), runScripts: 'outside-only'});
         const {window} = dom;
         t.after(() => window.close());
         window.eval(read('messages.js'));

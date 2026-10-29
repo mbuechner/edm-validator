@@ -30,7 +30,7 @@ if (JSDOM) {
 
     function harness(t, options = {}) {
         const dom = new JSDOM('<main><section id="rdfSource"></section></main>', {
-            url: 'https://validator.example/app/explorer.html', runScripts: 'outside-only'
+            url: 'https://validator.example/app/', runScripts: 'outside-only'
         });
         const { window } = dom;
         const { document } = window;

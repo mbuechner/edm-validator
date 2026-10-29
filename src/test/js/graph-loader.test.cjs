@@ -16,7 +16,7 @@ try {
 }
 
 if (JSDOM) {
-    const html = fs.readFileSync(path.join(root, 'src/main/resources/static/explorer.html'), 'utf8');
+    const html = fs.readFileSync(path.join(root, 'src/main/resources/static/index.html'), 'utf8');
     const source = fs.readFileSync(path.join(root, 'src/main/resources/static/graph.js'), 'utf8');
     const fitSource = fs.readFileSync(path.join(root, 'src/main/resources/static/graph-fit.js'), 'utf8');
     const nodesSource = fs.readFileSync(path.join(root, 'src/main/resources/static/graph-nodes.js'), 'utf8');
