@@ -70,7 +70,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * Converts one RDF graph into independent RDF/XML and JSON-LD outputs.
+ * Converts one RDF graph into independent RDF/XML and named N-Quads, TriG and JSON-LD outputs.
  *
  * <p>Instances are stateless: every call owns and closes its Jena model. Input IRIs
  * are identifiers, never download locations; JSON-LD contexts must be embedded.
@@ -112,7 +112,7 @@ public class RdfConversionService {
     /** Uses the conversion parser and its local-only XML/IRI rules for an independent graph preview. */
     public @NonNull GraphResponse graphPreview(GraphRequest request) {
         ConversionRequest source = new ConversionRequest(request.rdfXml(), null, request.documentIri(),
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         Model model = ModelFactory.createDefaultModel();
         try {
             parse(source, null, model);
@@ -131,11 +131,15 @@ public class RdfConversionService {
         if (request == null) return failure("rdfXml", "Bitte RDF/XML eingeben oder eine Datei hochladen.");
         List<@Nullable String> requestedMethods = request.methods();
         List<@Nullable String> methods = requestedMethods == null ? List.of("compacted") : requestedMethods;
-        boolean xml = !Boolean.FALSE.equals(request.rdfXmlOutput());
-        boolean jsonld = !Boolean.FALSE.equals(request.jsonLdOutput());
+        boolean defaultOutput = request.rdfXmlOutput() == null && request.jsonLdOutput() == null
+                && request.nQuadsOutput() == null && request.trigOutput() == null;
+        boolean xml = defaultOutput || Boolean.TRUE.equals(request.rdfXmlOutput());
+        boolean jsonld = Boolean.TRUE.equals(request.jsonLdOutput());
+        boolean nquads = Boolean.TRUE.equals(request.nQuadsOutput());
+        boolean trig = Boolean.TRUE.equals(request.trigOutput());
         boolean compactFlattening = "compacted".equals(request.representation());
         if (!inspect) {
-            if (!xml && !jsonld) issues.add(new ConversionIssue("outputs", "Bitte mindestens ein Ausgabeformat auswählen."));
+            if (!xml && !jsonld && !nquads && !trig) issues.add(new ConversionIssue("outputs", "Bitte mindestens ein Ausgabeformat auswählen."));
             if (jsonld && (methods.isEmpty() || methods.stream().anyMatch(m -> m == null || !METHODS.contains(m)))) {
                 issues.add(new ConversionIssue("methods", "Bitte mindestens ein gültiges JSON-LD-Verfahren auswählen."));
             }
@@ -206,16 +210,44 @@ public class RdfConversionService {
                     }
                 }
             }
+            if (!nquads && !trig && !jsonld) return response(results, issues, autoContextText, frameText, resources);
+            RdfRecordDump dump = RdfRecordDump.create(model, request, upload);
+            if (nquads || trig) {
+                if (nquads) {
+                    try {
+                        results.add(success("nquads", "converted.nq", "application/n-quads", dump.nquads(), false, dump.graphIri()));
+                    } catch (Exception ex) {
+                        results.add(failed("nquads", "converted.nq", "application/n-quads",
+                                "N-Quads konnten nicht geschrieben werden: " + message(ex), dump.graphIri()));
+                    }
+                }
+                if (trig) {
+                    try {
+                        results.add(success("trig", "converted.trig", "application/trig", dump.trig(), false, dump.graphIri()));
+                    } catch (Exception ex) {
+                        results.add(failed("trig", "converted.trig", "application/trig",
+                                "TriG konnte nicht geschrieben werden: " + message(ex), dump.graphIri()));
+                    }
+                }
+            }
             if (!jsonld) return response(results, issues, autoContextText, frameText, resources);
 
             JsonDocument source;
+            JsonArray namedGraph;
+            JsonDocument dataset;
             try {
-                // Jena's plain JSON-LD writer preserves lexical literal forms and
-                // supplies the same complete graph to every independent operation.
-                source = JsonDocument.of(new StringReader(serialize(model, RDFFormat.JSONLD11_PLAIN)));
+                // Keep native literal lexical forms and source blank identities. Frames select
+                // within this graph; complete operations process its named-dataset wrapper.
+                JsonArray nodes = JsonLd.expand(JsonDocument.of(new StringReader(serialize(model, RDFFormat.JSONLD11_PLAIN))))
+                        .options(options()).get();
+                nodes = dump.scopeSource(nodes);
+                source = JsonDocument.of(nodes);
+                namedGraph = dump.namedGraph(nodes);
+                dataset = JsonDocument.of(namedGraph);
             } catch (Exception ex) {
                 for (@NonNull String method : METHODS) if (methods.contains(method)) {
-                    results.add(failed(method, fileName(method, request.representation()), "application/ld+json", "JSON-LD konnte nicht erzeugt werden: " + message(ex)));
+                    results.add(failed(method, fileName(method, request.representation()), "application/ld+json",
+                            "JSON-LD konnte nicht erzeugt werden: " + message(ex), dump.graphIri()));
                 }
                 return response(results, issues, autoContextText, frameText, resources);
             }
@@ -224,36 +256,46 @@ public class RdfConversionService {
                 if (!methods.contains(method)) continue;
                 try {
                     JsonStructure output;
+                    boolean empty = false;
                     switch (method) {
-                        case "expanded" -> output = JsonLd.expand(source).options(options()).get();
+                        case "expanded" -> output = namedGraph;
                         case "compacted" -> {
                             if (contextError != null) throw new IllegalArgumentException(contextError);
-                            output = JsonLd.compact(source, JsonDocument.of(selectedContext)).options(options()).get();
+                            output = JsonLd.compact(dataset, JsonDocument.of(selectedContext)).options(options()).get();
                         }
                         case "flattened" -> {
-                            var flatten = JsonLd.flatten(source).options(options());
+                            JsonArray flattened = (JsonArray) JsonLd.flatten(dataset).options(options()).get();
+                            // Flattening drops empty graphs and reissues blank labels. Restore
+                            // the record declaration and scope before optional compaction.
+                            flattened = flattened.isEmpty() ? dump.namedGraph(Json.createArrayBuilder().build())
+                                    : dump.scopeProcessed(flattened);
                             if (compactFlattening) {
                                 if (contextError != null) throw new IllegalArgumentException(contextError);
-                                flatten.context(JsonDocument.of(selectedContext));
-                            }
-                            output = flatten.get();
+                                output = JsonLd.compact(JsonDocument.of(flattened), JsonDocument.of(selectedContext))
+                                        .options(options()).get();
+                            } else output = flattened;
                         }
                         case "framed" -> {
                             if (frameError != null) throw new IllegalArgumentException(frameError);
-                            output = JsonLd.frame(source, JsonDocument.of(Objects.requireNonNull(effectiveFrame,
-                                    "A successful frame configuration must supply a frame"))).options(options()).get();
-                            if ("expanded".equals(request.representation())) {
-                                // Expansion changes terms and values, while keeping the frame's
-                                // finite nesting and selected view of the graph intact.
-                                output = JsonLd.expand(JsonDocument.of(output)).options(options()).get();
-                            }
+                            JsonObject frame = Objects.requireNonNull(effectiveFrame,
+                                    "A successful frame configuration must supply a frame");
+                            JsonStructure framed = JsonLd.frame(source, JsonDocument.of(frame)).options(options()).get();
+                            empty = emptyFrame(framed);
+                            // Expand the framed view before wrapping: its compacted @graph may
+                            // be an alias or a default-graph wrapper, never an extra named graph.
+                            JsonArray selected = JsonLd.expand(JsonDocument.of(framed)).options(options()).get();
+                            JsonArray framedGraph = dump.namedGraph(dump.scopeProcessed(selected));
+                            output = "expanded".equals(request.representation()) ? framedGraph
+                                    : JsonLd.compact(JsonDocument.of(framedGraph), JsonDocument.of(Json.createObjectBuilder()
+                                            .add("@context", frame.get("@context")).build())).options(options()).get();
                         }
                         default -> throw new IllegalArgumentException("Unbekanntes JSON-LD-Verfahren.");
                     }
-                    results.add(success(method, fileName(method, request.representation()), "application/ld+json", pretty(output), "framed".equals(method) && emptyFrame(output)));
+                    results.add(success(method, fileName(method, request.representation()), "application/ld+json",
+                            pretty(output), empty, dump.graphIri()));
                 } catch (Exception ex) {
                     String error = "JSON-LD (" + method + "): " + message(ex);
-                    results.add(failed(method, fileName(method, request.representation()), "application/ld+json", error));
+                    results.add(failed(method, fileName(method, request.representation()), "application/ld+json", error, dump.graphIri()));
                     if ("framed".equals(method) && frameError == null) issues.add(new ConversionIssue("frame", error));
                     if (("compacted".equals(method) || ("flattened".equals(method) && compactFlattening)) && contextError == null) {
                         issues.add(new ConversionIssue("context", error));
@@ -600,7 +642,12 @@ public class RdfConversionService {
     }
 
     private ConversionResult success(@NonNull String id, @NonNull String name, @NonNull String type, String content, boolean empty) {
-        return new ConversionResult(id, name, type, content, content.getBytes(StandardCharsets.UTF_8).length, null, empty);
+        return success(id, name, type, content, empty, null);
+    }
+
+    private ConversionResult success(@NonNull String id, @NonNull String name, @NonNull String type, String content,
+                                     boolean empty, @Nullable String graphIri) {
+        return new ConversionResult(id, name, type, content, content.getBytes(StandardCharsets.UTF_8).length, null, empty, graphIri);
     }
 
     private @NonNull String fileName(String method, @Nullable String representation) {
@@ -610,7 +657,11 @@ public class RdfConversionService {
     }
 
     private ConversionResult failed(@NonNull String id, @NonNull String name, @NonNull String type, String error) {
-        return new ConversionResult(id, name, type, null, 0, error, false);
+        return failed(id, name, type, error, null);
+    }
+
+    private ConversionResult failed(@NonNull String id, @NonNull String name, @NonNull String type, String error, @Nullable String graphIri) {
+        return new ConversionResult(id, name, type, null, 0, error, false, graphIri);
     }
 
     private @NonNull ConversionResponse response(List<ConversionResult> results, List<@NonNull ConversionIssue> issues,

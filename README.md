@@ -383,16 +383,24 @@ Bei relativen Ressourcen-IRIs ist eine absolute Basis erforderlich: aus
 `xml:base`, der bekannten ursprünglichen Dokument-IRI oder dem Feld **Basis-IRI**.
 Lokale Dateinamen und temporäre Serverpfade werden nicht als Basis verwendet.
 
-Die Oberfläche erzeugt genau **eine Ergebnisdatei**: entweder XML (RDF/XML) oder
-JSON (JSON-LD). Standard ist JSON-LD in kompakter Form mit automatisch erzeugtem
-Kontext. Unter der gemeinsamen Eingabe stehen Einstellungen und Ergebnis auf
-großen Bildschirmen nebeneinander; auf kleinen Bildschirmen untereinander.
+Die Oberfläche erzeugt genau **eine Ergebnisdatei**: RDF/XML, JSON-LD, N-Quads oder TriG.
+Standard ist **RDF/XML**, typisiert und flach. Auch **Einstellungen zurücksetzen**
+stellt dieses Format wieder her. Unter der gemeinsamen Eingabe stehen Einstellungen
+und Ergebnis auf großen Bildschirmen nebeneinander; auf kleinen Bildschirmen
+untereinander.
 
 Unter **Weitere Einstellungen** werden zwei unabhängige JSON-LD-Eigenschaften
-gewählt: **Darstellung** (kompakt oder expandiert) und **Struktur** (Standardgraph,
+gewählt: **Darstellung** (kompakt oder expandiert) und **Struktur** (vollständiger Graph,
 getrennte Knoten oder eingebettete Ressource). Alle sechs Kombinationen sind
 möglich. Expansion und Compaction sind JSON-LD-Verfahren und gelten nicht für
 RDF/XML. XML wird neu serialisiert; das ist keine JSON-LD-Expansion oder -Compaction.
+
+**JSON-LD, N-Quads und TriG exportieren denselben Named Graph.** In JSON-LD steht
+der Graphname als `@id` am Objekt mit `@graph`; die enthaltenen Ressourcen haben
+ihre eigenen `@id`-Werte. Die expandierte Darstellung enthält dieses Graphobjekt
+in einem Array, die kompakte Darstellung verwendet den automatisch erzeugten
+Kontext. Auch geflattete und geframte Ausgaben behalten den Graphnamen. Ein Frame
+wählt weiterhin eine Ansicht der Ressourcen aus und kann daher Aussagen auslassen.
 
 Für XML gibt es eigene, ebenfalls kombinierbare Einstellungen:
 
@@ -410,6 +418,46 @@ sind möglich; sie erhalten den vollständigen RDF-Graphen und erzeugen
 typisierte, flache Ausgabe. XML und JSON werden immer lesbar eingerückt ausgegeben;
 Leerzeichen in Literalwerten bleiben unverändert. JSON-LD-Frames und deren
 Einbettungsregeln beeinflussen diese XML-Serialisierung nicht.
+
+**[N-Quads](https://www.w3.org/TR/n-quads/)** erzeugt `converted.nq` als UTF-8 mit dem Medientyp
+`application/n-quads`. Alle Aussagen der Eingabe werden gemeinsam in **einem Named
+Graph** ausgegeben; jede Zeile enthält dessen Graph-IRI als vierten Term. IRIs,
+Blank-Node-Verknüpfungen, Sprachkennzeichnungen und Literalwerte bleiben erhalten.
+Die Vorschau zeigt den zeilenweisen Quelltext, Kopieren und Download verwenden
+denselben Inhalt. Für Dumps steht **jedes N-Quad in genau einer Zeile**, ohne
+Einrückung oder zusätzliche Zeilenumbrüche. Zeilenumbrüche innerhalb von
+Literalwerten werden als `\n` beziehungsweise `\r` maskiert. Lange Zeilen werden
+in der Vorschau horizontal gescrollt. Ein vollständiger DDB-Datensatz umfasst hier
+mehrere Zeilen; zum Aufteilen nach vollständigen Datensätzen müssen alle Quads
+derselben Graph-IRI zusammenbleiben. Ein leeres Modell erzeugt eine leere Datei;
+N-Quads kann die Existenz eines leeren Named Graphs nicht ausdrücken. Die
+Ergebnismetadaten enthalten auch dann die gewählte Graph-IRI.
+
+**[TriG](https://www.w3.org/TR/trig/)** erzeugt `converted.trig` als UTF-8 mit dem
+Medientyp `application/trig`. Der vollständige Named Graph steht in **genau einer
+physischen, mit LF abgeschlossenen Zeile**: `<Graph-IRI> { ... }`. Alle IRIs sind
+absolut und Zeilenumbrüche in Literalen werden maskiert. Damit lassen sich mehrere
+solche Exporte aneinanderhängen und an Zeilengrenzen in vollständige Datensätze
+aufteilen. Auch ein leeres RDF-Modell erzeugt eine Zeile mit einem leeren
+Graphblock; RDF-Stores müssen die Existenz leerer Graphen allerdings nicht erhalten.
+
+Alle drei Formate verwenden dieselbe automatisch bestimmte Graph-IRI, die im
+Ergebnis angezeigt wird. Für eine eindeutige DDB-Objekt-ID lautet sie immer
+`https://api.deutsche-digitale-bibliothek.de/items/<ID>`. Die ID wird aus
+vorhandenen API-IRIs unter `/items/` oder `/records/` beziehungsweise der
+DDB-Objekt-IRI eines `edm:ProvidedCHO` erkannt. Die ursprünglichen Ressourcen-IRIs
+und Aussagen innerhalb des Graphen werden dabei nicht umbenannt.
+Bei mehreren oder widersprüchlichen DDB-IDs wird keine davon willkürlich
+ausgewählt. Als Rückfall dienen die angegebene Dokument-IRI, danach die Basis-IRI
+und zuletzt `urn:sha256:` mit dem SHA-256 der ursprünglichen Eingabe (Text als
+UTF-8, Upload als Originalbytes). Auch erkannte DDB-Dokument- und Basis-IRIs werden
+auf die HTTPS-IRI unter `/items/` vereinheitlicht. Die Hash-Variante ändert ihren
+Graphnamen bei jeder Änderung der Eingabebytes.
+
+Blank-Node-Bezeichner erhalten einen graphabhängigen Namensraum,
+damit beim Zusammenfügen verschiedener Datensätze keine unbeabsichtigten
+Verknüpfungen entstehen. Für N-Quads und TriG gibt es keine XML- oder
+JSON-LD-Einstellungen; eine benötigte Basis-IRI lässt sich weiterhin angeben.
 
 Für DDB-Dokumente, bei denen typisierte Elemente wie `edm:TimeSpan` und getrennte
 Ressourcenbeschreibungen gewünscht sind, empfiehlt sich **Typisiert (DDB)** und
@@ -434,12 +482,14 @@ Weitere unabhängig angeforderte Ausgaben werden weiterhin erzeugt.
 | Darstellung | Struktur | Datei |
 | --- | --- | --- |
 | RDF/XML typisiert / explizit | Flach / verschachtelt | `converted.rdf` |
-| JSON-LD kompakt | Standardgraph | `compacted.jsonld` |
-| JSON-LD expandiert | Standardgraph | `expanded.jsonld` |
-| JSON-LD kompakt / expandiert | Getrennte Knoten | `flattened-compacted.jsonld` / `flattened-expanded.jsonld` |
-| JSON-LD kompakt / expandiert | Eingebettete Ressource | `framed-compacted.jsonld` / `framed-expanded.jsonld` |
+| N-Quads | Ein Named Graph, ein Quad pro Zeile | `converted.nq` |
+| TriG | Ein vollständiger Named Graph pro Zeile | `converted.trig` |
+| JSON-LD kompakt | Vollständiger Named Graph | `compacted.jsonld` |
+| JSON-LD expandiert | Vollständiger Named Graph | `expanded.jsonld` |
+| JSON-LD kompakt / expandiert | Named Graph mit getrennten Knoten | `flattened-compacted.jsonld` / `flattened-expanded.jsonld` |
+| JSON-LD kompakt / expandiert | Named Graph mit eingebetteter Ressource | `framed-compacted.jsonld` / `framed-expanded.jsonld` |
 
-Apache Jena liest das RDF-Modell und serialisiert RDF/XML sowie die gemeinsame
+Apache Jena liest das RDF-Modell und serialisiert RDF/XML, N-Quads sowie die gemeinsame
 JSON-LD-Ausgangsdarstellung mit `JSONLD11_PLAIN`. Der von Jena bereits transitiv
 mitgebrachte Titanium-Prozessor übernimmt Expansion, Compaction,
 Flattening und Framing über seine Bibliotheks-APIs. Die tatsächlichen APIs wurden
@@ -449,6 +499,9 @@ an den lokal verwendeten JARs geprüft; siehe auch die
 Es werden keine zusätzlichen Laufzeitbibliotheken eingebunden. Titanium und JSON-P
 stammen aus der vorhandenen Jena-Abhängigkeit; Upload-Optionen werden mit dem
 bereits von Spring Boot konfigurierten Jackson-Mapper eingelesen.
+Die TriG-Ausgabe verwendet Jenas RDF-Term-Serialisierung und schreibt die Aussagen
+direkt in einen einzelnen Graphblock. Rohdaten oder Literalwerte werden nicht
+nachträglich durch Entfernen von Zeilenumbrüchen verändert.
 
 Basis-IRI und Frame-Konfiguration bleiben zunächst eingeklappt. Bei einem
 Fehler wird der betroffene Bereich automatisch geöffnet und das Feld fokussiert.
@@ -529,7 +582,7 @@ Zusätzliche API-Endpunkte (jeweils relativ zum konfigurierten Basispfad):
   wird beim Einlesen berücksichtigt.
 
 Die Antwort enthält `results` mit `id`, `fileName`, `mediaType`, `content`,
-`sizeBytes`, `error` und `empty`, feldbezogene `errors`, `autoContext`,
+`sizeBytes`, `error`, `empty` und `graphIri`, feldbezogene `errors`, `autoContext`,
 `effectiveFrame` und `resources`. Bei mehreren erfolgreichen Ergebnissen enthält
 `zipBase64` zusätzlich das ZIP-Archiv. `content` enthält das eigentliche Dokument;
 der API-Antwortumschlag ist keine herunterzuladende RDF-Datei.
@@ -537,6 +590,15 @@ der API-Antwortumschlag ist keine herunterzuladende RDF-Datei.
 Die API unterstützt weiterhin mehrere unabhängige Ausgaben pro Anfrage und
 stellt dann mit der Java-Standardbibliothek ein ZIP bereit. Ein fehlerhafter
 Kontext oder ein fehlerhaftes Frame verhindert dort nur die abhängigen Ausgaben.
+`rdfXmlOutput`, `jsonLdOutput`, `nQuadsOutput` und `trigOutput` wählen mit `true` die Formate aus;
+fehlende oder auf `false` gesetzte Flags wählen bei einer expliziten Formatauswahl
+keine weiteren Formate hinzu. Fehlen alle vier Flags, wird nur RDF/XML erzeugt.
+Für N-Quads allein genügt `"nQuadsOutput": true`. Das Ergebnis hat die ID `nquads`,
+den Dateinamen `converted.nq` und den Medientyp `application/n-quads`.
+Für TriG allein genügt `"trigOutput": true`; das Ergebnis hat die ID `trig`,
+den Dateinamen `converted.trig` und den Medientyp `application/trig`.
+Bei erfolgreichen JSON-LD-, N-Quads- und TriG-Ergebnissen enthält `graphIri` den
+automatisch gewählten Graphnamen; bei RDF/XML ist das Feld `null`.
 Die Oberfläche verwendet `contextMode: "generated"`, damit auch eigene Frames
 den Kontext aus den aktuellen Quelldaten verwenden. Die bisherigen API-Modi
 `auto` und `custom` bleiben für vorhandene API-Clients unverändert verfügbar.
@@ -548,7 +610,7 @@ dem JSON-LD-Prozessor expandiert; die Einbettung bleibt dabei erhalten.
 Die vereinfachte Oberfläche fordert stets nur ein Format und eine Kombination an.
 Für XML steuern `xmlRepresentation` (`typed`/`explicit`) und `xmlStructure`
 (`flat`/`nested`) die Ausgabe. Fehlende Werte verwenden `typed` und `flat`.
-Die Ausgabe wird immer eingerückt formatiert. Diese XML-Optionen
+Die XML-Ausgabe wird immer eingerückt formatiert. Diese XML-Optionen
 wirken nur auf die RDF/XML-Ausgabe.
 
 Fachliche Tests ausführen:

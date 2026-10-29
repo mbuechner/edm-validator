@@ -7,7 +7,9 @@ import java.util.List;
 
 /**
  * Options shared by pasted text, uploads and metadata inspection.
- * Missing options use service defaults. {@code rdfXml} may be absent for an upload;
+ * Omitting all output flags selects RDF/XML. Once any output flag is supplied,
+ * only flags explicitly set to {@code true} select an output; null and false do not.
+ * {@code rdfXml} may be absent for an upload;
  * base/document IRIs are optional when all resource IRIs are already absolute.
  */
 @NullMarked
@@ -26,6 +28,8 @@ public record ConversionRequest(
         @Nullable String frame,
         @Nullable String representation,
         @Nullable String xmlRepresentation,
-        @Nullable String xmlStructure
+        @Nullable String xmlStructure,
+        @Nullable Boolean nQuadsOutput,
+        @Nullable Boolean trigOutput
 ) {
 }

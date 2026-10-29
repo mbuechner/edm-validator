@@ -15,9 +15,9 @@
         expanded: 'Vollständige IRIs und explizite Werte.'
     };
     const structureHints = {
-        standard: 'Den vollständigen RDF-Graphen ausgeben.',
-        flattened: 'Jede Ressource als eigenen Knoten ausgeben.',
-        framed: 'Eine Ressource mit ihren Verknüpfungen ausgeben.'
+        standard: 'Alle Aussagen in einem benannten Graphen ausgeben.',
+        flattened: 'Jede Ressource im benannten Graphen als eigenen Knoten ausgeben.',
+        framed: 'Eine Ressource mit ihren Verknüpfungen im benannten Graphen ausgeben.'
     };
     const xmlRepresentationHints = {
         explicit: 'Ressourcen mit rdf:Description und explizitem rdf:type.',
@@ -42,7 +42,11 @@
 
     const selected = name => form.querySelector('input[name="' + name + '"]:checked')?.value;
     const visible = (id, show) => byId(id)?.classList.toggle('d-none', !show);
-    const isJson = () => byId('converterJsonLd').checked;
+    const output = () => selected('converterOutput') || 'rdfxml';
+    const isJson = () => output() === 'jsonld';
+    const isXml = () => output() === 'rdfxml';
+    const isNQuads = () => output() === 'nquads';
+    const isTriG = () => output() === 'trig';
     const representation = () => byId('converterMethod').value;
     const structure = () => byId('converterStructure').value;
     const xmlRepresentation = () => byId('converterXmlRepresentation').value;
@@ -144,7 +148,7 @@
             representation: ['converterOutputError', 'converterMethod'],
             xmlRepresentation: ['converterOutputError', 'converterXmlRepresentation'],
             xmlStructure: ['converterOutputError', 'converterXmlStructure'],
-            outputs: ['converterOutputError', 'converterJsonLd']
+            outputs: ['converterOutputError', form.querySelector('input[name="converterOutput"]:checked')?.id || 'converterRdfXml']
         };
         let first = null;
         const messages = [];
@@ -185,28 +189,33 @@
 
     function syncOptions() {
         const json = isJson();
+        const xml = isXml();
         const framed = json && structure() === 'framed';
         visible('converterJsonOptions', json);
-        visible('converterXmlOptions', !json);
-        byId('converterXmlRepresentation').disabled = json;
-        byId('converterXmlStructure').disabled = json;
+        visible('converterXmlOptions', xml);
+        byId('converterXmlRepresentation').disabled = !xml;
+        byId('converterXmlStructure').disabled = !xml;
         byId('converterMethod').disabled = !json;
         byId('converterStructure').disabled = !json;
         byId('converterMethodHint').textContent = hints[representation()];
         byId('converterStructureHint').textContent = structureHints[structure()];
-        byId('converterOutputSummary').textContent = json ? jsonLabel() : xmlLabel();
+        byId('converterOutputSummary').textContent = json ? jsonLabel() + ' · ein benannter Graph (Named Graph).' : xml ? xmlLabel() : isNQuads()
+            ? 'N-Quads · ein benannter Graph (Named Graph), eine Zeile je Quad.'
+            : 'TriG · ein benannter Graph (Named Graph) mit allen Aussagen in einer Zeile.';
         byId('converterXmlRepresentationHint').textContent = xmlRepresentationHints[xmlRepresentation()];
         byId('converterXmlStructureHint').textContent = xmlStructureHints[xmlStructure()];
         visible('converterFrameOptions', framed);
+        byId('converterFrameOptions').disabled = !framed;
         const customFrame = selected('converterFrameMode') === 'custom';
         if (framed && customFrame && !frameDraftInitialized) {
             byId('converterFrame').value = JSON.stringify(generatedFrame(), null, 2);
             frameDraftInitialized = true;
             queueEditor(byId('converterFrame'));
         }
-        byId('converterFrameFields').disabled = customFrame;
+        byId('converterFrameFields').disabled = !framed || customFrame;
+        byId('converterFrame').disabled = !framed || !customFrame;
         byId('converterRoot').setAttribute('aria-required', String(framed && !customFrame));
-        visible('converterFrameEditorBox', customFrame);
+        visible('converterFrameEditorBox', framed && customFrame);
         if (isVisible(byId('converterFrame'))) queueEditor(byId('converterFrame'));
     }
 
@@ -219,13 +228,14 @@
     }
 
     function requestData() {
-        const input = modelInput();
-        if (!isJson()) return {
-            ...input, rdfXmlOutput: true, jsonLdOutput: false,
+        const input = { ...modelInput(), rdfXmlOutput: isXml(), jsonLdOutput: isJson(), nQuadsOutput: isNQuads(), trigOutput: isTriG() };
+        if (isNQuads() || isTriG()) return input;
+        if (isXml()) return {
+            ...input,
             xmlRepresentation: xmlRepresentation(), xmlStructure: xmlStructure()
         };
         const data = {
-            ...input, rdfXmlOutput: false, jsonLdOutput: true,
+            ...input,
             methods: [method()], representation: representation(), contextMode: 'generated'
         };
         if (structure() === 'framed') {
@@ -310,7 +320,7 @@
         inspectingRevision = version;
         try {
             // Only model metadata is needed here, never a transformation or a frame.
-            const data = await api('/inspect', { ...modelInput(), rdfXmlOutput: false, jsonLdOutput: false }, controller.signal);
+            const data = await api('/inspect', { ...modelInput(), rdfXmlOutput: false, jsonLdOutput: false, nQuadsOutput: false, trigOutput: false }, controller.signal);
             if (sourceRevision !== version || controller.signal.aborted || !wantsMetadata()) return;
             inspectedRevision = version;
             metadataIssues = (data.errors || []).filter(issue => ['rdfXml', 'file', 'baseIri', 'documentIri'].includes(issue.field));
@@ -359,8 +369,15 @@
         const article = document.createElement('article');
         const title = document.createElement('h3');
         title.className = 'h6';
-        title.textContent = item.id === 'rdfxml' ? xmlLabel() : jsonLabel();
+        const graphDump = item.id === 'nquads' || item.id === 'trig';
+        title.textContent = item.id === 'rdfxml' ? xmlLabel() : graphDump ? item.id === 'trig' ? 'TriG' : 'N-Quads' : jsonLabel();
         article.append(title);
+        if (item.id !== 'rdfxml' && typeof item.graphIri === 'string' && item.graphIri) {
+            const graph = document.createElement('p');
+            graph.className = 'form-text small text-break mb-3';
+            graph.textContent = 'Benannter Graph: ' + item.graphIri;
+            article.append(graph);
+        }
         {
             const toolbar = document.createElement('div');
             toolbar.className = 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3';
@@ -384,7 +401,8 @@
             pre.tabIndex = 0;
             pre.setAttribute('aria-label', title.textContent + ' Quelltext (schreibgeschützt)');
             const code = document.createElement('code');
-            code.className = item.id === 'rdfxml' ? 'language-markup' : 'language-json';
+            const language = item.id === 'rdfxml' ? 'markup' : graphDump ? 'none' : 'json';
+            code.className = 'language-' + language;
             pre.append(code);
             copy.addEventListener('click', async () => {
                 const copied = await copyContent(item.content, pre);
@@ -398,7 +416,7 @@
             toolbar.append(info, actions);
             article.append(toolbar);
             article.append(pre);
-            window.CodeView.render(pre, item.content, item.id === 'rdfxml' ? 'markup' : 'json');
+            window.CodeView.render(pre, item.content, language);
             hasResult = true;
         }
         byId('converterResults').append(article);
@@ -477,7 +495,7 @@
             inspectedRevision = sourceRevision;
             metadataIssues = (response.errors || []).filter(issue => ['rdfXml', 'file', 'baseIri', 'documentIri'].includes(issue.field));
             updateMetadata(response);
-            const expectedId = data.jsonLdOutput ? data.methods[0] : 'rdfxml';
+            const expectedId = data.trigOutput ? 'trig' : data.nQuadsOutput ? 'nquads' : data.jsonLdOutput ? data.methods[0] : 'rdfxml';
             const result = (response.results || []).find(item => item.id === expectedId);
             const issues = [...(response.errors || [])];
             if (result?.error && !issues.some(issue => issue.message === result.error)) {
@@ -513,7 +531,7 @@
         visible('converterStatus', false);
         form.querySelectorAll('.converter-code-editor textarea').forEach(queueEditor);
         syncOptions();
-        byId('converterJsonLd').focus();
+        byId('converterRdfXml').focus();
     });
     syncOptions();
 })();

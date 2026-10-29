@@ -33,7 +33,7 @@
     <main id="mainContent" class="container-fluid px-3 px-lg-4 py-4 w-100">
         <header class="mb-4">
             <h1 id="converterHeading" class="h3 mb-1" tabindex="-1">Konverter</h1>
-            <p class="text-body-secondary mb-0">Die gemeinsame RDF-Eingabe in XML oder JSON-LD konvertieren.</p>
+            <p class="text-body-secondary mb-0">Die gemeinsame RDF-Eingabe in RDF/XML, JSON-LD, N-Quads oder TriG konvertieren.</p>
         </header>
         <section id="rdfSource" class="mb-4"></section>
         <section id="pageMessages" class="sticky-top" aria-label="Meldungen">
@@ -49,10 +49,14 @@
                             <fieldset class="mb-3">
                                 <legend class="float-none fs-6 fw-semibold mb-2">Ausgabeformat</legend>
                                 <div class="btn-group w-100" role="group" aria-label="Ausgabeformat">
-                                    <input id="converterRdfXml" type="radio" name="converterOutput" value="rdfxml" class="btn-check">
+                                    <input id="converterRdfXml" type="radio" name="converterOutput" value="rdfxml" class="btn-check" checked>
                                     <label for="converterRdfXml" class="btn btn-outline-primary py-2">RDF/XML</label>
-                                    <input id="converterJsonLd" type="radio" name="converterOutput" value="jsonld" class="btn-check" checked="">
+                                    <input id="converterJsonLd" type="radio" name="converterOutput" value="jsonld" class="btn-check">
                                     <label for="converterJsonLd" class="btn btn-outline-primary py-2">JSON-LD</label>
+                                    <input id="converterNQuads" type="radio" name="converterOutput" value="nquads" class="btn-check">
+                                    <label for="converterNQuads" class="btn btn-outline-primary py-2">N-Quads</label>
+                                    <input id="converterTriG" type="radio" name="converterOutput" value="trig" class="btn-check">
+                                    <label for="converterTriG" class="btn btn-outline-primary py-2">TriG</label>
                                 </div>
                                 <div id="converterOutputSummary" class="form-text"></div>
                                 <div id="converterOutputError" class="text-danger small mt-1" role="status"></div>
@@ -60,7 +64,7 @@
                             <details id="converterAdvanced" class="mb-3 border rounded p-3">
                                 <summary class="fw-semibold">Weitere Einstellungen</summary>
                                 <div class="pt-3">
-                                    <div id="converterXmlOptions" class="mb-3 d-none">
+                                    <div id="converterXmlOptions" class="mb-3">
                                         <div class="row g-3">
                                             <div class="col-12 col-md-6">
                                                 <label for="converterXmlRepresentation" class="form-label">Knotendarstellung</label>
@@ -80,11 +84,11 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div id="converterJsonOptions" class="mb-3">
+                                    <div id="converterJsonOptions" class="mb-3 d-none">
                                         <div class="row g-3">
                                             <div class="col-12 col-md-6">
                                                 <label for="converterMethod" class="form-label">Darstellung</label>
-                                                <select id="converterMethod" class="form-select" aria-describedby="converterMethodHint">
+                                                <select id="converterMethod" class="form-select" aria-describedby="converterMethodHint" disabled>
                                                         <option value="compacted" selected="">Kompakt (empfohlen)</option>
                                                         <option value="expanded">Expandiert (vollständige IRIs)</option>
                                                     </select>
@@ -92,12 +96,12 @@
                                             </div>
                                             <div class="col-12 col-md-6">
                                                 <label for="converterStructure" class="form-label">Struktur</label>
-                                                <select id="converterStructure" class="form-select" aria-describedby="converterStructureHint">
-                                                        <option value="standard" selected="">Standardgraph</option>
+                                                <select id="converterStructure" class="form-select" aria-describedby="converterStructureHint" disabled>
+                                                        <option value="standard" selected="">Vollständiger Graph</option>
                                                         <option value="flattened">Getrennte Knoten (geflattet)</option>
                                                         <option value="framed">Ressource einbetten (Frame)</option>
                                                     </select>
-                                                <div id="converterStructureHint" class="form-text">Vollständiger RDF-Graph ohne besondere Umstrukturierung.</div>
+                                                <div id="converterStructureHint" class="form-text">Alle Aussagen in einem benannten Graphen ausgeben.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -107,7 +111,7 @@
                                         <div id="converterBaseHint" class="form-text">Nur für relative IRIs nötig, wenn die Eingabe keine eigene Basis mitbringt.</div>
                                         <div id="converterBaseError" class="text-danger small" role="status"></div>
                                     </div>
-                                    <fieldset id="converterFrameOptions" class="d-none border-top pt-3">
+                                    <fieldset id="converterFrameOptions" class="d-none border-top pt-3" disabled>
                                         <legend class="float-none fs-6 fw-semibold">Ressource einbetten</legend>
                                         <p class="form-text mb-3">Das Frame erzeugt eine ausgewählte Ansicht. Nicht passende oder nicht eingebettete Knoten können im Ergebnis fehlen.</p>
                                         <div class="form-check">

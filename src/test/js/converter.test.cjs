@@ -26,19 +26,31 @@ if (JSDOM) {
         'xmlns:schema="http://schema.org/"><rdf:Description rdf:about="https://example.org/org">' +
         '<schema:name xml:lang="de">München &amp; Straße</schema:name></rdf:Description></rdf:RDF>\n';
     const context = JSON.stringify({ '@context': { schema: 'http://schema.org/' } }, null, 2);
+    const namedGraphIri = 'https://api.deutsche-digitale-bibliothek.de/items/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I';
+    const longLiteral = 'München & Straße \\"im Original\\" ' + 'langer Literalwert '.repeat(100);
+    const expandedGraph = {'@id': namedGraphIri, '@graph': [{'@id': 'https://example.org/org',
+        'http://schema.org/name': [{'@value': 'München & Straße', '@language': 'de'}]}]};
+    const compactedGraph = {'@context': {schema: 'http://schema.org/'}, '@id': namedGraphIri,
+        '@graph': [{'@id': 'https://example.org/org', 'schema:name': {'@value': '<img src=x onerror=alert(1)>', '@language': 'de'}}]};
     const data = Object.fromEntries([
         ['rdfxml', 'converted.rdf', 'application/rdf+xml', inputXml],
-        ['expanded', 'expanded.jsonld', 'application/ld+json', '[{"@id":"https://example.org/org","http://schema.org/name":[{"@value":"München & Straße","@language":"de"}]}]\n'],
-        ['compacted', 'compacted.jsonld', 'application/ld+json', '{"@context":{"schema":"http://schema.org/"},"@id":"https://example.org/org","schema:name":{"@value":"<img src=x onerror=alert(1)>","@language":"de"}}\n'],
-        ['flattened', 'flattened.jsonld', 'application/ld+json', '[{"@id":"https://example.org/org","http://schema.org/name":[{"@value":"München & Straße","@language":"de"}]}]\n'],
-        ['framed', 'framed.jsonld', 'application/ld+json', '{"@context":{"schema":"http://schema.org/"},"@id":"https://example.org/org","schema:name":"München & Straße"}\n']
+        ['nquads', 'converted.nq', 'application/n-quads', '<https://example.org/org> <http://schema.org/name> "' + longLiteral
+            + '"@de <' + namedGraphIri + '> .\n<urn:record> <urn:note> "<img src=x>" <' + namedGraphIri + '> .\n'],
+        ['trig', 'converted.trig', 'application/trig', '<' + namedGraphIri + '> { <https://example.org/org> <http://schema.org/name> "'
+            + longLiteral + '"@de . <urn:record> <urn:note> "<img src=x>" . }\n'],
+        ['expanded', 'expanded.jsonld', 'application/ld+json', JSON.stringify([expandedGraph], null, 2) + '\n'],
+        ['compacted', 'compacted.jsonld', 'application/ld+json', JSON.stringify(compactedGraph, null, 2) + '\n'],
+        ['flattened', 'flattened.jsonld', 'application/ld+json', JSON.stringify([expandedGraph], null, 2) + '\n'],
+        ['framed', 'framed.jsonld', 'application/ld+json', JSON.stringify({'@context': {schema: 'http://schema.org/'},
+            '@id': namedGraphIri, '@graph': [{'@id': 'https://example.org/org', 'schema:name': 'München & Straße'}]}, null, 2) + '\n']
     ].map(([id, fileName, mediaType, content]) => [id, {
-        id, fileName, mediaType, content, sizeBytes: Buffer.byteLength(content, 'utf8'), error: null, empty: false
+        id, fileName, mediaType, content, sizeBytes: Buffer.byteLength(content, 'utf8'), error: null, empty: false,
+        graphIri: id === 'rdfxml' ? null : namedGraphIri
     }]));
     const jsonChoices = ['compacted', 'expanded'].flatMap(representation =>
         ['standard', 'flattened', 'framed'].map(structure => ({ representation, structure })));
     function resultFor(request) {
-        const id = request.rdfXmlOutput ? 'rdfxml' : request.methods[0];
+        const id = request.rdfXmlOutput ? 'rdfxml' : request.trigOutput ? 'trig' : request.nQuadsOutput ? 'nquads' : request.methods[0];
         const result = { ...data[id] };
         if (['flattened', 'framed'].includes(id) && request.representation) {
             result.fileName = id + '-' + request.representation + '.jsonld';
@@ -145,7 +157,14 @@ if (JSDOM) {
         return button;
     }
 
-    test('simple defaults and mutually exclusive XML/JSON output produce exactly one result', async t => {
+    function assertNamedJsonGraph(content) {
+        const document = JSON.parse(content);
+        const entries = Array.isArray(document) ? document : document['@id'] === namedGraphIri ? [document] : document['@graph'];
+        const graph = entries.find(entry => entry['@id'] === namedGraphIri && Array.isArray(entry['@graph']));
+        assert.ok(graph, 'JSON-LD fixtures contain a named graph wrapper, not only a node ID');
+    }
+
+    test('RDF/XML defaults and mutually exclusive output formats produce exactly one result', async t => {
         const app = harness(t);
         assert.equal(app.get('converterWorkspace').classList.contains('d-none'), false);
         assert.equal(app.get('validatorWorkspace'), null);
@@ -153,11 +172,17 @@ if (JSDOM) {
         assert.equal(app.get('showConverter').getAttribute('aria-current'), 'page');
         assert.equal(app.get('converterRdfXml').type, 'radio');
         assert.equal(app.get('converterJsonLd').type, 'radio');
-        assert.equal(app.get('converterRdfXml').checked, false);
-        assert.equal(app.get('converterJsonLd').checked, true);
+        assert.equal(app.get('converterNQuads').type, 'radio');
+        assert.equal(app.get('converterTriG').type, 'radio');
+        assert.equal(app.get('converterRdfXml').checked, true);
+        assert.equal(app.get('converterJsonLd').checked, false);
+        assert.equal(app.get('converterNQuads').checked, false);
+        assert.equal(app.get('converterTriG').checked, false);
         assert.equal(app.get('converterMethod').value, 'compacted');
         assert.equal(app.get('converterStructure').value, 'standard');
-        assert.equal(app.get('converterXmlOptions').classList.contains('d-none'), true);
+        assert.equal(app.get('converterStructure').querySelector('option[value="standard"]').textContent.trim(), 'Vollständiger Graph');
+        assert.equal(app.get('converterXmlOptions').classList.contains('d-none'), false);
+        assert.equal(app.get('converterJsonOptions').classList.contains('d-none'), true);
         assert.equal(app.get('converterXmlRepresentation').value, 'typed');
         assert.equal(app.get('converterXmlStructure').value, 'flat');
         assert.equal(app.get('converterXmlFormatting'), null, 'XML output is always formatted');
@@ -184,8 +209,21 @@ if (JSDOM) {
         app.input('rdfXmlInput', inputXml);
         await app.submit();
         let request = JSON.parse(app.conversions().at(-1).body);
+        assert.equal(request.rdfXmlOutput, true);
+        assert.equal(request.jsonLdOutput, false);
+        assert.equal(request.nQuadsOutput, false);
+        assert.equal(request.trigOutput, false);
+        assert.equal(request.xmlRepresentation, 'typed');
+        assert.equal(request.xmlStructure, 'flat');
+        assert.equal(app.get('converterResults').querySelector('code').className, 'language-markup');
+        app.check('converterJsonLd');
+        assert.match(app.get('converterOutputSummary').textContent, /benannter Graph \(Named Graph\)/);
+        await app.submit();
+        request = JSON.parse(app.conversions().at(-1).body);
         assert.equal(request.rdfXmlOutput, false);
         assert.equal(request.jsonLdOutput, true);
+        assert.equal(request.nQuadsOutput, false);
+        assert.equal(request.trigOutput, false);
         assert.deepEqual(request.methods, ['compacted']);
         assert.equal(request.representation, 'compacted');
         assert.equal(request.contextMode, 'generated');
@@ -212,7 +250,9 @@ if (JSDOM) {
         request = JSON.parse(app.conversions().at(-1).body);
         assert.equal(request.rdfXmlOutput, true);
         assert.equal(request.jsonLdOutput, false);
-        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'rdfXml', 'rdfXmlOutput', 'xmlRepresentation', 'xmlStructure']);
+        assert.equal(request.nQuadsOutput, false);
+        assert.equal(request.trigOutput, false);
+        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'xmlRepresentation', 'xmlStructure']);
         assert.equal(request.xmlRepresentation, 'typed');
         assert.equal(request.xmlStructure, 'flat');
         assert.equal(Object.hasOwn(request, 'xmlFormatting'), false);
@@ -229,6 +269,9 @@ if (JSDOM) {
             assert.deepEqual(request.methods, [structure === 'standard' ? representation : structure]);
             assert.equal(request.representation, representation);
             assert.equal(request.rdfXmlOutput, false);
+            assert.equal(request.jsonLdOutput, true);
+            assert.equal(request.nQuadsOutput, false);
+            assert.equal(request.trigOutput, false);
             assert.equal(request.contextMode, 'generated', 'all JSON-LD variants use the generated context');
             assert.equal(Object.hasOwn(request, 'context'), false, 'automatic contexts do not send an unused custom draft');
             if (structure === 'framed') {
@@ -272,7 +315,9 @@ if (JSDOM) {
                 assert.equal(Object.hasOwn(request, 'xmlFormatting'), false);
                 assert.equal(request.rdfXmlOutput, true);
                 assert.equal(request.jsonLdOutput, false);
-                assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'rdfXml', 'rdfXmlOutput', 'xmlRepresentation', 'xmlStructure']);
+                assert.equal(request.nQuadsOutput, false);
+                assert.equal(request.trigOutput, false);
+                assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'xmlRepresentation', 'xmlStructure']);
                 assert.equal(app.get('converterResults').querySelectorAll('article').length, 1);
                 const selectedLabels = ['converterXmlRepresentation', 'converterXmlStructure']
                     .map(id => app.get(id).selectedOptions[0].textContent.trim());
@@ -317,10 +362,15 @@ if (JSDOM) {
 
     test('preview, clipboard and UTF-8 download preserve each single generated document', async t => {
         const app = harness(t);
+        for (const link of app.window.document.querySelectorAll('link[rel="stylesheet"][href^="./"]')) {
+            const style = app.window.document.createElement('style');
+            style.textContent = fs.readFileSync(path.join(root, 'src/main/resources/static', link.getAttribute('href').slice(2)), 'utf8');
+            app.window.document.head.append(style);
+        }
         app.input('rdfXmlInput', inputXml);
-        for (const choice of [{ xml: true }, ...jsonChoices]) {
-            app.check(choice.xml ? 'converterRdfXml' : 'converterJsonLd');
-            if (!choice.xml) {
+        for (const choice of [{ xml: true }, { nquads: true }, { trig: true }, ...jsonChoices]) {
+            app.check(choice.xml ? 'converterRdfXml' : choice.nquads ? 'converterNQuads' : choice.trig ? 'converterTriG' : 'converterJsonLd');
+            if (!choice.xml && !choice.nquads && !choice.trig) {
                 app.input('converterMethod', choice.representation);
                 app.input('converterStructure', choice.structure);
             }
@@ -334,7 +384,29 @@ if (JSDOM) {
             assert.equal(code.textContent, result.content);
             assert.equal(cards[0].querySelector('pre').textContent, result.content, 'decorative numbers never enter output text');
             assert.equal(cards[0].querySelector('.code-view-gutter').getAttribute('aria-hidden'), 'true');
-            assert.equal(code.className, result.id === 'rdfxml' ? 'language-markup' : 'language-json');
+            assert.equal(code.className, result.id === 'rdfxml' ? 'language-markup' : ['nquads', 'trig'].includes(result.id) ? 'language-none' : 'language-json');
+            if (choice.nquads || choice.trig) {
+                assert.equal(cards[0].querySelector('h3').textContent, choice.trig ? 'TriG' : 'N-Quads');
+                assert.equal(cards[0].querySelector('.form-text').textContent, 'Benannter Graph: ' + result.graphIri);
+                assert.equal(code.querySelector('.token'), null, 'graph dump formats stay plain text');
+                const pre = cards[0].querySelector('pre');
+                pre.style.width = '16rem';
+                assert.ok(result.content.split('\n')[0].length > 1000, 'the fixture exercises a quad much wider than its viewport');
+                assert.equal(result.content.trimEnd().split('\n').length, choice.trig ? 1 : 2,
+                    choice.trig ? 'the entire TriG graph occupies one physical line' : 'each fixture quad occupies one physical line');
+                assert.ok(result.content.endsWith('\n'), 'graph dumps retain their final LF');
+                assert.equal(app.window.getComputedStyle(pre).whiteSpace, 'pre');
+                assert.equal(app.window.getComputedStyle(code).whiteSpace, 'pre', 'a narrow viewport preserves long quad lines instead of wrapping them');
+                assert.equal(app.window.getComputedStyle(code).overflowWrap, 'normal');
+                assert.equal(app.window.getComputedStyle(code).wordBreak, 'normal');
+                assert.equal(app.window.getComputedStyle(code).minWidth, 'max-content');
+                assert.equal(app.window.getComputedStyle(pre).overflow, 'auto', 'long quad lines can be scrolled horizontally');
+            } else if (choice.xml) assert.equal(cards[0].querySelector('.form-text'), null);
+            else {
+                assertNamedJsonGraph(result.content);
+                assert.equal(cards[0].querySelector('.form-text').textContent, 'Benannter Graph: ' + result.graphIri);
+                assert.equal(code.className, 'language-json', 'named JSON-LD graphs retain JSON highlighting');
+            }
             action(cards[0], 'Kopieren').click();
             await settled();
             assert.equal(app.copies.at(-1), result.content);
@@ -346,6 +418,240 @@ if (JSDOM) {
             assert.equal(await saved.blob.text(), result.content);
             assert.equal(app.get('converterResults').querySelector('img'), null, 'document contents remain text');
         }
+    });
+
+    test('named graph formats send only model input and output flags, disable unrelated options and reuse metadata', async t => {
+        for (const format of [
+            {radio: 'converterNQuads', id: 'nquads', label: 'N-Quads'},
+            {radio: 'converterTriG', id: 'trig', label: 'TriG'}
+        ]) {
+            const app = harness(t, null, {rdfXml: inputXml, documentIri: 'https://example.org/original.rdf', ddbUri: ''});
+            app.check('converterJsonLd');
+            app.input('converterStructure', 'framed');
+            app.check('converterFrameCustom');
+            const frame = '{"@id":"https://example.org/org","@embed":"@never"}';
+            app.input('converterFrame', frame);
+            app.check(format.radio);
+            app.open('converterAdvanced');
+            app.input('converterBase', 'https://example.org/source/');
+            assert.equal(app.get('converterRdfXml').checked, false);
+            assert.equal(app.get('converterJsonLd').checked, false);
+            assert.equal(app.get(format.radio).checked, true);
+            const summary = app.get('converterOutputSummary').textContent;
+            assert.ok(summary.startsWith(format.label));
+            assert.match(summary, /benannter Graph \(Named Graph\).*Zeile/);
+            for (const id of ['converterXmlOptions', 'converterJsonOptions', 'converterFrameOptions']) {
+                assert.equal(app.get(id).classList.contains('d-none'), true, id);
+            }
+            for (const id of ['converterXmlRepresentation', 'converterXmlStructure', 'converterMethod', 'converterStructure',
+                'converterFrameOptions', 'converterFrameFields', 'converterFrame']) {
+                assert.equal(app.get(id).disabled, true, id);
+            }
+            assert.equal(app.get('converterBase').disabled, false, 'relative IRIs may still need an explicit base');
+            await pause(650);
+            assert.equal(app.inspections().length, 0, format.label + ' needs no framing metadata request');
+            await app.submit();
+            const request = JSON.parse(app.conversions().at(-1).body);
+            assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput']);
+            assert.equal(request.rdfXmlOutput, false);
+            assert.equal(request.jsonLdOutput, false);
+            assert.equal(request.nQuadsOutput, format.id === 'nquads');
+            assert.equal(request.trigOutput, format.id === 'trig');
+            assert.equal(request.rdfXml, inputXml);
+            assert.equal(request.baseIri, 'https://example.org/source/');
+            assert.equal(request.documentIri, 'https://example.org/original.rdf');
+            assert.equal(app.get('converterResults').querySelector('h3').textContent, format.label);
+            assert.equal(app.get('converterResults').querySelector('code').className, 'language-none');
+            app.check('converterJsonLd');
+            assert.equal(app.get('converterFrameOptions').classList.contains('d-none'), false);
+            assert.equal(app.get('converterFrameOptions').disabled, false);
+            assert.equal(app.get('converterFrame').disabled, false);
+            assert.equal(app.get('converterFrame').value, frame, 'changing formats preserves inactive settings');
+            await pause(650);
+            assert.equal(app.inspections().length, 0, format.label + ' already supplied metadata for the same model');
+            assert.equal(app.get('converterResources').options.length, 2);
+        }
+    });
+
+    test('switching away from pending N-Quads discards its late output and reset restores XML without changing shared input', async t => {
+        let release;
+        let nquads = 0;
+        const shared = {rdfXml: inputXml, documentIri: 'https://example.org/shared.rdf', ddbUri: 'https://ddb.example/item'};
+        const app = harness(t, call => {
+            if (call.url.endsWith('/inspect')) return payload();
+            const request = JSON.parse(call.body);
+            if (request.nQuadsOutput && ++nquads === 1) return new Promise(resolve => { release = resolve; });
+            return payload([resultFor(request)]);
+        }, shared);
+        app.check('converterNQuads');
+        await app.submit();
+        const pending = app.conversions()[0];
+        app.check('converterRdfXml');
+        assert.equal(pending.signal.aborted, true);
+        assert.equal(app.get('converterSubmit').disabled, false);
+        release(payload([data.nquads], {resources: ['https://outdated.example/']}));
+        await settled();
+        assert.equal(app.get('converterResults').children.length, 0);
+        assert.equal(app.get('converterResources').options.length, 0);
+        await app.submit();
+        assert.equal(app.get('converterResults').querySelector('code').className, 'language-markup');
+        app.check('converterNQuads');
+        await app.submit();
+        const card = app.get('converterResults').querySelector('article');
+        app.window.navigator.clipboard.writeText = undefined;
+        action(card, 'Kopieren').click();
+        await settled();
+        assert.equal(app.window.getSelection().toString(), data.nquads.content, 'manual copy selects exact N-Quads without decorative numbers');
+        app.open('converterAdvanced');
+        app.get('converterReset').click();
+        assert.equal(app.get('converterRdfXml').checked, true);
+        assert.equal(app.get('converterJsonLd').checked, false);
+        assert.equal(app.get('converterNQuads').checked, false);
+        assert.equal(app.get('converterTriG').checked, false);
+        assert.equal(app.window.document.activeElement, app.get('converterRdfXml'));
+        assert.equal(app.get('converterAdvanced').open, false);
+        assert.equal(app.get('converterXmlRepresentation').value, 'typed');
+        assert.equal(app.get('converterXmlStructure').value, 'flat');
+        assert.equal(app.get('converterResults').children.length, 0);
+        assert.equal(app.get('rdfXmlInput').value, inputXml);
+        assert.equal(app.window.RdfSource.get().documentIri, shared.documentIri);
+        assert.equal(JSON.parse(app.localStorage.getItem(sourceKey)).rdfXml, inputXml);
+    });
+
+    test('TriG displays only the successful returned graph IRI, keeps it read-only and discards stale graph metadata', async t => {
+        let release;
+        let defer = true;
+        let graphIri = 'urn:server:graph-from-result';
+        let error = null;
+        const shared = {rdfXml: inputXml, documentIri: 'https://example.org/input/source.rdf', ddbUri: ''};
+        const app = harness(t, call => {
+            if (call.url.endsWith('/inspect')) return payload();
+            if (defer) return new Promise(resolve => { release = resolve; });
+            return payload([{...data.trig, graphIri, error}]);
+        }, shared);
+        app.check('converterTriG');
+        await app.submit();
+        const pending = app.conversions()[0];
+        app.check('converterRdfXml');
+        assert.equal(pending.signal.aborted, true);
+        release(payload([{...data.trig, graphIri: 'urn:outdated:graph'}]));
+        await settled();
+        assert.equal(app.get('converterResults').children.length, 0);
+        defer = false;
+        app.check('converterTriG');
+        await app.submit();
+        const article = app.get('converterResults').querySelector('article');
+        const graph = article.querySelector('.form-text');
+        assert.equal(graph.textContent, 'Benannter Graph: ' + graphIri, 'the server result supplies the graph name; the client does not derive it from the source or content');
+        assert.equal(graph.tagName, 'P');
+        assert.equal(article.querySelector('input,textarea'), null, 'the graph name is information, not another setting');
+        assert.ok(graph.classList.contains('text-break'));
+        assert.equal(article.querySelector('code').className, 'language-none');
+        assert.equal(article.querySelector('code').textContent, data.trig.content);
+        graphIri = null;
+        await app.submit();
+        assert.equal(app.get('converterResults').querySelector('.form-text'), null, 'nullable graph metadata never resurrects the previous graph name');
+        graphIri = 'urn:server:<img src=x onerror=alert(1)>';
+        await app.submit();
+        assert.equal(app.get('converterResults').querySelector('.form-text').textContent, 'Benannter Graph: ' + graphIri);
+        assert.equal(app.get('converterResults').querySelector('img,[onerror]'), null);
+        error = 'TriG konnte nicht geschrieben werden.';
+        await app.submit();
+        assert.equal(app.get('converterResults').children.length, 0, 'a failed result exposes neither a graph IRI nor download actions');
+        app.get('converterReset').click();
+        assert.equal(app.get('converterRdfXml').checked, true);
+        assert.equal(app.get('converterTriG').checked, false);
+        assert.equal(app.window.document.activeElement, app.get('converterRdfXml'));
+        assert.equal(app.window.RdfSource.get().rdfXml, inputXml);
+        assert.equal(app.window.RdfSource.get().documentIri, shared.documentIri);
+    });
+
+    test('named JSON-LD graphs keep JSON highlighting, alias wrappers and exact output while stale or failed graph metadata stays hidden', async t => {
+        let release;
+        let defer = true;
+        let graphIri = namedGraphIri;
+        let failed = false;
+        const aliased = {'@context': {kennung: '@id', aussagen: '@graph', schema: 'http://schema.org/'},
+            kennung: namedGraphIri, aussagen: [{kennung: 'https://example.org/org', 'schema:name': 'München & Straße <img src=x>'}]};
+        const content = JSON.stringify(aliased, null, 2) + '\n';
+        const shared = {rdfXml: inputXml, documentIri: 'https://example.org/input/source.rdf', ddbUri: ''};
+        const app = harness(t, call => {
+            if (call.url.endsWith('/inspect')) return payload();
+            if (defer) return new Promise(resolve => { release = resolve; });
+            return payload([{...data.framed, content, graphIri, sizeBytes: Buffer.byteLength(content, 'utf8'),
+                error: failed ? 'JSON-LD konnte nicht erzeugt werden.' : null}]);
+        }, shared);
+        app.window.Prism = {manual: true};
+        for (const file of ['prism-core-1.29.0.min.js', 'prism-markup-1.29.0.min.js', 'prism-json-1.29.0.min.js']) {
+            app.window.eval(fs.readFileSync(path.join(root, 'src/main/resources/static/vendor', file), 'utf8'));
+        }
+        app.check('converterJsonLd');
+        assert.match(app.get('converterOutputSummary').textContent, /benannter Graph \(Named Graph\)/);
+        await app.submit();
+        const pending = app.conversions()[0];
+        app.input('converterMethod', 'expanded');
+        assert.equal(pending.signal.aborted, true);
+        release(payload([{...data.compacted, graphIri: 'urn:outdated:json-graph'}]));
+        await settled();
+        assert.equal(app.get('converterResults').children.length, 0);
+        defer = false;
+        app.input('converterMethod', 'compacted');
+        app.input('converterStructure', 'framed');
+        app.check('converterFrameCustom');
+        app.input('converterFrame', JSON.stringify({'@context': aliased['@context'], '@id': 'https://example.org/org', '@embed': '@never'}));
+        await app.submit();
+        const article = app.get('converterResults').querySelector('article');
+        const code = article.querySelector('code');
+        assert.equal(code.className, 'language-json');
+        assert.ok(code.querySelector('.token.property'), 'real Prism still tokenizes named graph JSON as JSON');
+        assert.equal(code.textContent, content);
+        assert.equal(article.querySelector('.form-text').textContent, 'Benannter Graph: ' + namedGraphIri);
+        assert.equal(article.querySelector('input,textarea,img'), null);
+        assert.equal(aliased['@context'].kennung, '@id');
+        assert.equal(aliased['@context'].aussagen, '@graph');
+        assert.equal(aliased.kennung, namedGraphIri);
+        assert.equal(aliased.aussagen.length, 1, 'the aliased fixture contains a graph wrapper');
+        action(article, 'Kopieren').click();
+        await settled();
+        assert.equal(app.copies.at(-1), content);
+        action(article, 'Herunterladen').click();
+        const saved = app.downloads.at(-1);
+        assert.equal(saved.blob.type, 'application/ld+json;charset=utf-8');
+        assert.equal(await saved.blob.text(), content);
+        graphIri = null;
+        await app.submit();
+        assert.equal(app.get('converterResults').querySelector('.form-text'), null,
+            'the frontend does not derive missing graph metadata from JSON keys or aliases');
+        failed = true;
+        graphIri = namedGraphIri;
+        await app.submit();
+        assert.equal(app.get('converterResults').children.length, 0);
+        app.get('converterReset').click();
+        assert.equal(app.get('converterRdfXml').checked, true);
+        assert.equal(app.window.document.activeElement, app.get('converterRdfXml'));
+        assert.equal(app.window.RdfSource.get().rdfXml, inputXml);
+        assert.equal(app.window.RdfSource.get().documentIri, shared.documentIri);
+    });
+
+    test('switching from framing to N-Quads cancels pending inspection and ignores its late metadata', async t => {
+        let release;
+        const app = harness(t, call => call.url.endsWith('/inspect')
+            ? new Promise(resolve => { release = resolve; }) : payload([resultFor(JSON.parse(call.body))]));
+        app.input('rdfXmlInput', inputXml);
+        app.check('converterJsonLd');
+        app.input('converterStructure', 'framed');
+        app.open('converterAdvanced');
+        await until(() => app.inspections().length === 1, 'pending frame inspection');
+        const pending = app.inspections()[0];
+        app.check('converterNQuads');
+        assert.equal(pending.signal.aborted, true);
+        release(payload([], {resources: ['https://outdated.example/']}));
+        await settled();
+        assert.equal(app.get('converterResources').options.length, 0);
+        await app.submit();
+        assert.equal(app.get('converterResults').querySelector('code').className, 'language-none');
+        assert.equal(app.get('converterResources').options.length, 2);
+        assert.equal(app.inspections().length, 1, 'N-Quads does not start another inspection');
     });
 
     test('metadata is loaded on demand and cached across display-setting changes', async t => {
@@ -366,7 +672,9 @@ if (JSDOM) {
         const request = JSON.parse(app.inspections()[0].body);
         assert.equal(request.rdfXmlOutput, false);
         assert.equal(request.jsonLdOutput, false);
-        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'rdfXml', 'rdfXmlOutput'],
+        assert.equal(request.nQuadsOutput, false);
+        assert.equal(request.trigOutput, false);
+        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput'],
             'metadata requests carry only model input and disabled output flags');
         assert.equal(Object.hasOwn(request, 'flattenWithContext'), false);
         assert.equal(app.get('converterResources').options.length, 2);
@@ -395,6 +703,7 @@ if (JSDOM) {
         app.open('converterAdvanced');
         await pause(850);
         assert.equal(app.inspections().length, 0);
+        app.check('converterJsonLd');
         app.input('converterStructure', 'framed');
         app.input('converterRoot', 'https://example.org/org');
         app.check('converterFrameCustom');
@@ -407,6 +716,7 @@ if (JSDOM) {
         let release;
         const app = harness(t, call => call.url.endsWith('/inspect') ? payload() :
             new Promise(resolve => { release = resolve; }));
+        app.check('converterJsonLd');
         app.input('rdfXmlInput', inputXml);
         await app.submit();
         const pending = app.conversions()[0];
@@ -422,6 +732,7 @@ if (JSDOM) {
 
     test('the optional frame editor batches highlighting and keeps large drafts readable', async t => {
         const app = harness(t);
+        app.check('converterJsonLd');
         app.open('converterAdvanced');
         app.input('converterStructure', 'framed');
         app.check('converterFrameCustom');
@@ -454,6 +765,7 @@ if (JSDOM) {
             if (call.url.endsWith('/inspect')) return payload();
             return deferred ? new Promise(resolve => { release = resolve; }) : payload([data.compacted]);
         });
+        app.check('converterJsonLd');
         app.input('rdfXmlInput', inputXml);
         await app.submit();
         app.input('converterStructure', 'flattened');
@@ -481,6 +793,7 @@ if (JSDOM) {
     test('unavailable or rejected Clipboard API selects the exact source for manual copying', async t => {
         for (const scenario of ['unavailable', 'rejected']) {
             const app = harness(t);
+            app.check('converterJsonLd');
             app.window.navigator.clipboard.writeText = scenario === 'unavailable' ? undefined : async () => { throw new Error('Denied'); };
             let deprecatedCalls = 0;
             app.window.document.execCommand = () => { deprecatedCalls++; throw new Error('Deprecated copying'); };
@@ -499,6 +812,7 @@ if (JSDOM) {
 
     test('generic form framing and custom per-property rules remain separate and survive display-mode changes', async t => {
         const app = harness(t);
+        app.check('converterJsonLd');
         app.input('rdfXmlInput', inputXml);
         await app.submit();
         app.open('converterAdvanced');
@@ -557,7 +871,11 @@ if (JSDOM) {
         assert.equal(app.get('rdfXmlInput').value, inputXml, 'resetting options never clears the document shared with other tools');
         assert.equal(app.window.RdfSource.get().documentIri, originalIri);
         assert.equal(JSON.parse(app.localStorage.getItem(sourceKey)).rdfXml, inputXml);
-        assert.equal(app.get('converterJsonLd').checked, true);
+        assert.equal(app.get('converterRdfXml').checked, true);
+        assert.equal(app.get('converterJsonLd').checked, false);
+        assert.equal(app.get('converterNQuads').checked, false);
+        assert.equal(app.get('converterTriG').checked, false);
+        assert.equal(app.window.document.activeElement, app.get('converterRdfXml'));
         assert.equal(app.get('converterMethod').value, 'compacted');
         assert.equal(app.get('converterStructure').value, 'standard');
         assert.equal(app.get('converterXmlRepresentation').value, 'typed');
@@ -595,7 +913,7 @@ if (JSDOM) {
             if (mode === 'base') return payload([], { errors: [{ field: 'baseIri', message: 'Relative IRIs benötigen eine Basis-IRI.' }] });
             if (mode === 'context') return payload([{ ...data.compacted, content: null, error: 'Ungültiger Kontext' }],
                 { errors: [{ field: 'context', message: 'Ungültiger Kontext: @context fehlt.' }] });
-            return payload([{ ...data.framed, content: '{"@context":{},"@graph":[]}', empty: true }]);
+            return payload([{ ...data.framed, content: JSON.stringify({'@context': {}, '@id': namedGraphIri, '@graph': []}) + '\n', empty: true }]);
         });
         app.input('rdfXmlInput', inputXml);
         await app.submit();
@@ -604,6 +922,7 @@ if (JSDOM) {
         assert.match(app.get('converterErrors').textContent, /Basis-IRI/, 'the top-level alert also explains the field error');
         assert.equal(app.get('converterErrors').closest('#pageMessages'), app.get('pageMessages'));
         mode = 'context';
+        app.check('converterJsonLd');
         app.open('converterAdvanced', false);
         await app.submit();
         assert.equal(app.get('converterAdvanced').open, false, 'a generated context has no hidden editor to reveal');

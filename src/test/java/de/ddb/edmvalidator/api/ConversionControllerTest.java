@@ -3,6 +3,7 @@ package de.ddb.edmvalidator.api;
 import de.ddb.edmvalidator.service.RdfConversionService;
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
+import org.apache.jena.query.DatasetFactory;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.riot.Lang;
@@ -24,8 +25,12 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static java.util.Objects.requireNonNull;
@@ -35,8 +40,123 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ConversionControllerTest {
     private static final @NonNull Charset UTF_8 = requireNonNull(StandardCharsets.UTF_8);
+    private static final String DDB_ID = "224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I";
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
             new ConversionController(new RdfConversionService(), requireNonNull(JsonMapper.builder().build()))).build();
+
+    @Test
+    void omittedOutputFlagsDefaultToXmlAndTheApiSupportsFourExplicitFormats() throws Exception {
+        String xml = """
+                <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="urn:example:">
+                  <rdf:Description rdf:about="https://www.deutsche-digitale-bibliothek.de/item/%s">
+                    <rdf:type rdf:resource="http://www.europeana.eu/schemas/edm/ProvidedCHO"/>
+                    <ex:record rdf:resource="https://api.deutsche-digitale-bibliothek.de/records/%s"/>
+                    <ex:name>Sammlung</ex:name>
+                  </rdf:Description>
+                </rdf:RDF>
+                """.formatted(DDB_ID, DDB_ID);
+        JsonObject defaults = convertRequest(Json.createObjectBuilder().add("rdfXml", xml).build());
+        assertEquals(1, defaults.getJsonArray("results").size());
+        assertEquals("rdfxml", defaults.getJsonArray("results").getJsonObject(0).getString("id"));
+        assertTrue(defaults.isNull("zipBase64"));
+        for (String flag : List.of("rdfXmlOutput", "jsonLdOutput", "nQuadsOutput", "trigOutput")) {
+            JsonObject body = convertRequest(Json.createObjectBuilder().add("rdfXml", xml).add(flag, true).build());
+            assertTrue(body.getJsonArray("errors").isEmpty(), body.toString());
+            assertEquals(1, body.getJsonArray("results").size());
+            assertEquals(switch (flag) {
+                case "rdfXmlOutput" -> "rdfxml";
+                case "jsonLdOutput" -> "compacted";
+                case "nQuadsOutput" -> "nquads";
+                default -> "trig";
+            }, body.getJsonArray("results").getJsonObject(0).getString("id"));
+            JsonObject result = body.getJsonArray("results").getJsonObject(0);
+            if (flag.equals("rdfXmlOutput")) assertTrue(result.isNull("graphIri"));
+            else assertEquals("https://api.deutsche-digitale-bibliothek.de/items/" + DDB_ID, result.getString("graphIri"));
+        }
+        JsonObject none = convertRequest(Json.createObjectBuilder().add("rdfXml", xml)
+                .add("rdfXmlOutput", false).add("jsonLdOutput", false).add("nQuadsOutput", false).add("trigOutput", false).build());
+        assertTrue(none.getJsonArray("results").isEmpty());
+        assertEquals("outputs", none.getJsonArray("errors").getJsonObject(0).getString("field"));
+        JsonObject all = convertRequest(Json.createObjectBuilder().add("rdfXml", xml)
+                .add("rdfXmlOutput", true).add("jsonLdOutput", true).add("nQuadsOutput", true).add("trigOutput", true).build());
+        assertTrue(all.getJsonArray("errors").isEmpty(), all.toString());
+        assertEquals(Set.of("rdfxml", "nquads", "trig", "compacted"), all.getJsonArray("results").getValuesAs(JsonObject.class)
+                .stream().map(result -> result.getString("id")).collect(Collectors.toSet()));
+        assertFalse(all.isNull("zipBase64"));
+    }
+
+    @Test
+    void datasetTextAndEncodedUploadsExposeUtf8NamedGraphsWithSourceByteIdentities() throws Exception {
+        String xml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="urn:example:">
+                  <rdf:Description rdf:about="https://example.org/record"><ex:name xml:lang="de">München &amp; Straße</ex:name>
+                    <ex:part rdf:nodeID="part"/></rdf:Description>
+                  <rdf:Description rdf:nodeID="part"><ex:parent rdf:resource="https://example.org/record"/></rdf:Description>
+                </rdf:RDF>
+                """;
+        byte[] encoded = xml.replace("encoding=\"UTF-8\"", "encoding=\"ISO-8859-1\"").getBytes(StandardCharsets.ISO_8859_1);
+        MockMultipartFile file = new MockMultipartFile("file", "record.rdf", "application/rdf+xml", encoded);
+        for (String format : List.of("nquads", "trig", "compacted")) {
+            String flag = switch (format) {
+                case "nquads" -> "nQuadsOutput";
+                case "trig" -> "trigOutput";
+                default -> "jsonLdOutput";
+            };
+            JsonObject options = Json.createObjectBuilder().add(flag, true).build();
+            JsonObject text = convertRequest(Json.createObjectBuilder(options).add("rdfXml", xml).build());
+            JsonObject upload = response(perform(multipart("/api/convert/upload").file(file).param("options", options.toString()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
+            List<JsonObject> bodies = List.of(text, upload);
+            List<byte[]> sources = List.of(xml.getBytes(StandardCharsets.UTF_8), encoded);
+            for (int index = 0; index < bodies.size(); index++) {
+                JsonObject body = bodies.get(index);
+                assertTrue(body.getJsonArray("errors").isEmpty(), body.toString());
+                assertEquals(1, body.getJsonArray("results").size());
+                JsonObject result = body.getJsonArray("results").getJsonObject(0);
+                assertEquals(format, result.getString("id"));
+                assertEquals(switch (format) {
+                    case "nquads" -> "converted.nq";
+                    case "trig" -> "converted.trig";
+                    default -> "compacted.jsonld";
+                }, result.getString("fileName"));
+                assertEquals(switch (format) {
+                    case "nquads" -> "application/n-quads";
+                    case "trig" -> "application/trig";
+                    default -> "application/ld+json";
+                }, result.getString("mediaType"));
+                String graphIri = "urn:sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sources.get(index)));
+                assertEquals(graphIri, result.getString("graphIri"), "Fallback identity uses the original text/upload bytes");
+                assertFalse(result.getBoolean("empty"));
+                String content = result.getString("content");
+                assertTrue(content.contains("München & Straße"));
+                assertEquals(content.getBytes(StandardCharsets.UTF_8).length, result.getJsonNumber("sizeBytes").longValue());
+                assertTrue(body.isNull("zipBase64"));
+                if (format.equals("trig")) {
+                    assertTrue(content.endsWith("\n"));
+                    assertEquals(1, content.chars().filter(value -> value == '\n').count());
+                    assertFalse(content.contains("\r"));
+                }
+                var dataset = DatasetFactory.createTxnMem();
+                Model expected = model(xml);
+                try {
+                    RDFDataMgr.read(dataset, new StringReader(content), "https://unrelated.invalid/output", switch (format) {
+                        case "nquads" -> Lang.NQUADS;
+                        case "trig" -> Lang.TRIG;
+                        default -> Lang.JSONLD11;
+                    });
+                    List<String> names = new ArrayList<>();
+                    dataset.listNames().forEachRemaining(names::add);
+                    assertEquals(List.of(graphIri), names);
+                    assertTrue(dataset.getDefaultModel().isEmpty());
+                    assertTrue(dataset.getNamedModel(graphIri).isIsomorphicWith(expected));
+                } finally {
+                    dataset.close();
+                    expected.close();
+                }
+            }
+        }
+    }
 
     @Test
     void textAndEverySupportedUploadExtensionProduceTheSameRdfGraph() throws Exception {
@@ -190,6 +310,11 @@ class ConversionControllerTest {
     /** Checks the non-annotated fluent builder at the Spring API boundary. */
     private @NonNull ResultActions perform(RequestBuilder request) throws Exception {
         return mvc.perform(requireNonNull(request));
+    }
+
+    private JsonObject convertRequest(JsonObject request) throws Exception {
+        return response(perform(post("/api/convert").contentType(MediaType.APPLICATION_JSON).content(requireNonNull(request.toString())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
     }
 
     private static JsonObject response(String json) {
