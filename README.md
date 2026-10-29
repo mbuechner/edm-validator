@@ -270,17 +270,102 @@ der Lizenzen. Beide Bibliotheken werden nur für eine geladene Graphansicht ben�
 
 ## Query
 
-Die eigene Seite **Query** führt XPath und SPARQL unmittelbar auf der
-gemeinsamen RDF/XML-Eingabe aus. XPath verwendet den XML-Parser des Browsers und
-die im Dokument deklarierten Namensraumpräfixe. SPARQL lädt rdflib erst bei der
-ersten Abfrage aus `static/vendor/rdflib-2.4.0.min.js` und berücksichtigt die bekannte
-Dokument-IRI als Basis. Auch diese Bibliothek benötigt keinen externen CDN-Abruf.
-Parser- und Abfragefehler werden direkt beim Ergebnis angezeigt; eine vorherige
-serverseitige Validierung wird nicht vorausgesetzt. Bei Änderungen an der Quelle
-werden alte Ergebnisse verworfen.
-Wiederholte Abfragen auf unverändertem XML verwenden denselben geparsten Baum.
-Auf breiten Bildschirmen stehen Abfrage und Ergebnis nebeneinander, auf kleinen
-Bildschirmen untereinander. Die Tabs benennen die jeweilige Abfragesprache.
+Die eigene Seite **Query** führt SPARQL und XPath unmittelbar auf der
+gemeinsamen RDF/XML-Eingabe aus. XPath verwendet den XML-Parser des Browsers,
+die im Dokument deklarierten Namensraumpräfixe und einen zwischengespeicherten
+Dokumentbaum. Auf breiten Bildschirmen stehen Abfrage und Ergebnis nebeneinander,
+auf kleinen Bildschirmen untereinander.
+SPARQL steht als erster Tab beim Öffnen der Seite bereit.
+**Beispiel laden** im XPath-Tab setzt `//dc:title/text()` ein. Diese einfache
+Abfrage liefert beim Museumsbeispiel den Titel **Tanzendes Bauernpaar** und
+funktioniert unabhängig davon, ob der Titel am Objekt oder an einem Proxy steht.
+
+SPARQL verwendet **Oxigraph 0.5.13** direkt für RDF/XML und Standard-SPARQL 1.1.
+Beim ersten Ausführen startet ein eigener Modul-Web-Worker und initialisiert
+WebAssembly einmal. Der Store bleibt im Worker erhalten; nur geändertes XML oder
+eine geänderte Dokument-Basis-IRI führen zu einem neuen RDF-Ladevorgang. Eine
+andere Abfrage überträgt das XML nicht erneut. Die bekannte Dokument-IRI (sonst
+die Seiten-URL) dient als Basis. Absolute `xml:base`-Angaben verarbeitet Oxigraph
+selbst. Relative und verschachtelte Angaben werden für Oxigraph 0.5.13 vor dem
+Laden im Worker zu absoluten Basis-IRIs aufgelöst, da dessen XML-Parser sie sonst
+ablehnt. Ein SAX-Parser ändert dabei gezielt nur die relativen Basisattribute,
+ohne XML-Literalinhalte umzuschreiben. Die gespeicherte Eingabe bleibt unverändert;
+es entsteht kein RDF-Zwischenformat. Diese Aufbereitung entfällt bei einem
+wiederverwendeten Store.
+
+Die Oberfläche zeigt Initialisierung, RDF-Laden und Abfrageausführung an.
+**RDF laden** und **Abfrage** werden im Worker getrennt mit `performance.now()`
+gemessen; ein wiederverwendeter Store zeigt `0 ms` Ladezeit. Die Abfragezeit enthält
+die native Ergebniserzeugung, die anschließende JSON-Aufbereitung wird zusätzlich
+intern als `serializeMs` gemessen. Parser- und Abfragefehler erscheinen beim
+Ergebnis. Anfrage- und Quellkennungen verhindern, dass verspätete Antworten neuere
+Ergebnisse überschreiben. Ein Worker-Absturz oder ein Zeitlimit von 60 Sekunden
+erlaubt einen neuen Versuch; Seitenwechsel beenden den Worker.
+
+SELECT-Abfragen liefern ein JSON-Array mit einem flachen Objekt je Ergebniszeile:
+Variablennamen werden zu Schlüsseln, RDF-Termwerte zu Strings, ungebundene Variablen
+zu `""`. Auch Zahlen bleiben lexikalische Strings. Alle projizierten Variablen
+bleiben erhalten. Die Ausgabe entsteht mit `JSON.stringify` und enthält keine
+SPARQL-Bindings-Hülle. ASK liefert einen JSON-Boolean; CONSTRUCT und DESCRIBE
+liefern JSON-LD. Die Abfrageschnittstelle führt keine SPARQL-Updates aus.
+
+Der SPARQL-Editor startet leer. **Beispiel 1** lädt eine einfache Abfrage nach
+Ortsbezeichnungen. **Beispiel 2** lädt die vollständige Abfrage
+**RDF/XML → Portal-JSON** aus
+[`portal-select.rq`](src/main/resources/static/queries/portal-select.rq).
+Beide Beispiele bleiben im Editor bearbeitbar. Für einen anderen Datensatz lässt
+sich die Objekt-IRI direkt im `VALUES ?objekt`-Block der Portal-Abfrage ersetzen.
+Die Portal-Abfrage liefert 20 Felder, darunter getrennte Felder für
+Digitalisat- und Metadatenrechte. Format und Rechte werden zum ausgewählten
+Digitalisat gelesen; Ereignistyp, Person und Zeit bleiben demselben Ereignis
+zugeordnet. Die Reihenfolge von `GROUP_CONCAT`-Texten ist nicht festgelegt.
+Die Abfrage gliedert sich in Objektauswahl, Textfelder, URLs, Digitalisat und
+Metadaten. Jedes Textfeld hat eine beschriftete Unterabfrage mit einfachem
+`GROUP_CONCAT`: vorhandene Werte werden gesammelt, Duplikate entfernt und durch
+`; ` getrennt. So entfallen die verschachtelten Ausdrücke zum Umgang mit leeren
+Werten. Die einzelnen Felder erzeugen keine Kombination aller Personen,
+Datierungen und Abmessungen. Metadatenrechte werden anhand der ausgewählten
+Datensatz-ID zugeordnet; Rechte eines anderen Metadatensatzes werden nicht
+übernommen. Fehlende Angaben ergänzt die JSON-Ausgabe weiterhin mit `""`.
+
+ES-Modul und WASM stammen aus dem geprüften npm-Paket `oxigraph@0.5.13` und liegen
+mit beiden Lizenzen lokal unter `static/vendor/oxigraph-0.5.13/`. Das offizielle
+`web.js` ist bytegleich als `oxigraph.mjs` abgelegt. Maven übernimmt die Dateien
+als statische Ressourcen; ein zusätzlicher JavaScript-Build ist nicht erforderlich.
+Der Server liefert WASM als `application/wasm` und komprimiert es bei Bedarf.
+RDFLib wurde entfernt; N3 und Comunica gehörten nicht zu dieser Anwendung.
+Der nur für diesen Kompatibilitätsfall nachgeladene SAX-Parser liegt mit
+Quellnachweisen und Lizenzen unter `static/vendor/saxes-6.0.0/`.
+
+Die Tests verwenden das echte mitgelieferte WASM, einschließlich einer Ausführung
+in einem separaten Worker-Thread. Die Portal-Fixture unter
+`src/test/resources/query/portal-controlled.rdf.xml` ist ein kontrollierter
+Testdatensatz mit zwei Objekten, mehreren Ereignissen und Digitalisaten. Sie prüft
+alle 20 Felder, leere Werte und die fachliche Zuordnung. Zusätzlich wird der
+bereitgestellte Museumsdatensatz **Tanzendes Bauernpaar** als
+[`224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I.rdf.xml`](src/test/resources/query/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I.rdf.xml)
+geprüft. Die Testkopie korrigiert zwei Quellschreibfehler: zweimal
+`edm:occuredAt` zu `edm:occurredAt` und den Aggregationsbezeichner
+`#ddbAggegation` zu `#ddbAggregation`. Die Originaldatei unter `tmp/` bleibt
+unverändert; die Anwendung korrigiert keine RDF-Prädikate oder Ressourcen-IRIs.
+Die Regression prüft auch den unkorrigierten Fall, in dem Ereigniszeiten fehlen.
+Mit der korrigierten Quelle gehören **Hieronymus Wierix / 1568–1619** zur
+Herstellung und **Albrecht Dürer / 1514** zum Entwurf. Das Digitalisat behält
+Public Domain Mark; die Metadaten behalten CC0. `beschreibung` bleibt leer,
+weil die Quelle keine entsprechende Angabe enthält.
+
+Lokale Messung am 29.10.2026 mit dem Museumsdatensatz im tatsächlichen Worker
+(10.648 Byte, 115 Tripel): WASM-Initialisierung 38,0 ms, RDF-Laden 9,5 ms,
+erste Abfrage 68,5 ms, Median der weiteren Abfragen 10,2 ms. 100 Abfragen laden
+RDF und WASM jeweils einmal; nach einer Datenänderung beträgt die RDF-Ladezeit
+1,7 ms. Die Zeiten stammen aus dem Node-Worker-Test mit Browser-API-Adapter,
+ohne HTTP-Netzwerkzeit. Dies sind isolierte Funktionsmessungen und keine
+Browser- oder Lasttestgarantie.
+Die Messung lässt sich separat wiederholen:
+
+```bash
+node --test --test-name-pattern="supplied museum portal" src/test/js/sparql-worker-runtime.test.cjs
+```
 
 ## Konverter
 
@@ -501,7 +586,7 @@ Lokale Vergleichsmessungen vom 29.10.2026 (kurze isolierte Messreihen, kein Last
 
 | Arbeitsschritt | Vorher | Nachher |
 | --- | --- | --- |
-| Ausführbares JAR, trotz zusätzlicher lokaler Browser-Bibliotheken | 56,8 MB | 53,3 MB |
+| Ausführbares JAR, einschließlich lokaler Oxigraph-/WASM-Ressourcen | 56,8 MB | 54,8 MB |
 | Laufzeitbibliotheken im JAR | 129 | 113 |
 | Graphvorschau, 100.000 gemischte Tripel, Median | 24,8 ms | 15,8 ms |
 | Allokationen derselben Graphvorschau | 24,9 MiB | 11,3 MiB |

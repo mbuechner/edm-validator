@@ -1,0 +1,6 @@
+# Preserve the pinned upstream browser distribution and example query line endings.
+src/main/resources/static/vendor/oxigraph-0.5.13/oxigraph.mjs -text
+src/main/resources/static/vendor/oxigraph-0.5.13/web_bg.wasm -text
+# Keep original whitespace in the vendored parser module bodies.
+src/main/resources/static/vendor/saxes-6.0.0/saxes.mjs -text -whitespace
+src/main/resources/static/queries/portal-select.rq text eol=lf

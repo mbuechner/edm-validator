@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Controlled semantic test data, authored for the portal SELECT regression tests.
+  This is NOT the user's original DDB record and is not a downloaded DDB response.
+  The first identifier matches the example query's VALUES clause on purpose.
+  Correct namespaces/properties follow that query's prerequisites. The second object
+  is sparse so empty scalar values, identifier fallback and object isolation are tested.
+-->
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dc="http://purl.org/dc/elements/1.1/"
+         xmlns:dcterms="http://purl.org/dc/terms/"
+         xmlns:edm="http://www.europeana.eu/schemas/edm/"
+         xmlns:ore="http://www.openarchives.org/ore/terms/"
+         xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+         xmlns:org="http://www.w3.org/ns/org#"
+         xmlns:marcrel="http://id.loc.gov/vocabulary/relators/"
+         xmlns:crm="http://www.cidoc-crm.org/cidoc-crm/"
+         xmlns:bf="http://id.loc.gov/ontologies/bibframe/"
+         xmlns:ddb="https://www.deutsche-digitale-bibliothek.de/ddb/">
+
+  <edm:ProvidedCHO rdf:about="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+  <edm:ProvidedCHO rdf:about="https://example.org/query/second-object"/>
+
+  <ore:Proxy rdf:about="https://example.org/query/proxy/1">
+    <ore:proxyFor rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+    <ore:proxyIn rdf:resource="https://example.org/query/aggregation/provider-1"/>
+    <dc:title xml:lang="de">Portalobjekt Eins</dc:title>
+    <dc:title xml:lang="en">First portal object</dc:title>
+    <dc:description>Objektbeschreibung</dc:description>
+    <dcterms:description>Ergänzung</dcterms:description>
+    <dcterms:created>1901</dcterms:created>
+    <dcterms:created>1920</dcterms:created>
+    <dcterms:extent>10 x 20 cm</dcterms:extent>
+    <dcterms:extent>24 Seiten</dcterms:extent>
+    <dc:identifier>INV 001</dc:identifier>
+    <dc:identifier>DDB-001</dc:identifier>
+    <dc:type rdf:resource="https://example.org/query/type/drawing"/>
+    <dc:type>Unbekannter Typ</dc:type>
+    <dc:creator rdf:resource="https://example.org/query/person/alice"/>
+    <dc:creator rdf:resource="https://example.org/query/person/bob"/>
+    <dc:creator rdf:resource="https://example.org/query/person/unlabelled"/>
+    <edm:currentLocation rdf:resource="https://example.org/query/place/berlin"/>
+    <marcrel:rps rdf:resource="https://example.org/query/institution/custodian"/>
+    <edm:hasMet rdf:resource="https://example.org/query/event/creation"/>
+    <edm:hasMet rdf:resource="https://example.org/query/event/restoration"/>
+    <edm:hasMet rdf:resource="https://example.org/query/event/unlabelled"/>
+  </ore:Proxy>
+  <ore:Proxy rdf:about="https://example.org/query/proxy/2">
+    <ore:proxyFor rdf:resource="https://example.org/query/second-object"/>
+    <ore:proxyIn rdf:resource="https://example.org/query/aggregation/provider-2"/>
+  </ore:Proxy>
+
+  <ore:Aggregation rdf:about="https://example.org/query/aggregation/provider-1">
+    <edm:aggregatedCHO rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+    <edm:dataProvider rdf:resource="https://example.org/query/provider/1"/>
+    <edm:preview rdf:resource="https://media.example/preview/z.jpg"/>
+    <edm:preview rdf:resource="https://media.example/preview/a.jpg"/>
+    <edm:isShownAt rdf:resource="https://media.example/original/z"/>
+    <edm:isShownBy rdf:resource="https://media.example/digital/z.pdf"/>
+    <edm:isShownBy rdf:resource="https://media.example/digital/a.tif"/>
+    <edm:isShownBy>Not an IRI and never a selected digital resource</edm:isShownBy>
+    <edm:rights rdf:resource="https://rights.example/aggregation/z"/>
+    <edm:rights rdf:resource="https://rights.example/aggregation/a"/>
+    <bf:adminMetadata rdf:resource="https://example.org/query/admin/record-1"/>
+  </ore:Aggregation>
+  <ore:Aggregation rdf:about="https://example.org/query/aggregation/provider-1-b">
+    <edm:aggregatedCHO rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+    <edm:dataProvider rdf:resource="https://example.org/query/provider/1"/>
+    <edm:isShownAt rdf:resource="https://media.example/original/a"/>
+    <edm:isShownBy rdf:resource="https://media.example/digital/z.pdf"/>
+    <edm:rights rdf:resource="https://rights.example/aggregation/0-other-digital"/>
+  </ore:Aggregation>
+  <ore:Aggregation rdf:about="https://example.org/query/#ddbAggregation">
+    <edm:aggregatedCHO rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+    <edm:preview rdf:resource="https://media.example/preview/0.jpg"/>
+    <bf:adminMetadata rdf:resource="https://example.org/query/admin/record-1"/>
+  </ore:Aggregation>
+  <ore:Aggregation rdf:about="https://example.org/query/aggregation/provider-2">
+    <edm:aggregatedCHO rdf:resource="https://example.org/query/second-object"/>
+    <edm:dataProvider rdf:resource="https://example.org/query/provider/2"/>
+  </ore:Aggregation>
+
+  <rdf:Description rdf:about="https://media.example/digital/a.tif">
+    <dc:format>image/tiff</dc:format>
+    <dc:format>application/tiff</dc:format>
+    <edm:rights rdf:resource="https://rights.example/resource/z"/>
+    <edm:rights rdf:resource="https://rights.example/resource/a"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://media.example/digital/z.pdf">
+    <dc:format>application/pdf</dc:format>
+    <edm:rights rdf:resource="https://rights.example/non-selected/0"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/admin/record-1">
+    <ddb:itemId>record-001</ddb:itemId>
+    <ddb:itemId>zzz-record</ddb:itemId>
+    <dcterms:rights rdf:resource="https://rights.example/metadata/z"/>
+    <dcterms:rights rdf:resource="https://rights.example/metadata/a"/>
+  </rdf:Description>
+
+  <rdf:Description rdf:about="https://example.org/query/type/drawing">
+    <skos:prefLabel xml:lang="de">Zeichnung
+auf   Papier</skos:prefLabel>
+    <skos:prefLabel xml:lang="en">Drawing on paper</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/person/alice">
+    <skos:prefLabel xml:lang="de">Alice Müller</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/person/bob">
+    <skos:prefLabel xml:lang="ger">Bob Schneider</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/place/berlin">
+    <skos:prefLabel xml:lang="de">Berlin</skos:prefLabel>
+    <skos:prefLabel xml:lang="zxx">BER</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/institution/custodian">
+    <skos:prefLabel>Museum Eins</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/provider/1">
+    <skos:prefLabel xml:lang="de">Testmuseum</skos:prefLabel>
+    <skos:prefLabel xml:lang="en">Test Museum</skos:prefLabel>
+    <org:classification rdf:resource="https://example.org/query/sector/museums"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/sector/museums">
+    <skos:prefLabel>Museen</skos:prefLabel>
+  </rdf:Description>
+
+  <edm:Event rdf:about="https://example.org/query/event/creation">
+    <edm:hasType rdf:resource="https://example.org/query/event-type/creation"/>
+    <crm:P11_had_participant rdf:resource="https://example.org/query/person/alice"/>
+    <edm:occurredAt rdf:resource="https://example.org/query/time/1903"/>
+  </edm:Event>
+  <edm:Event rdf:about="https://example.org/query/event/restoration">
+    <edm:hasType rdf:resource="https://example.org/query/event-type/restoration"/>
+    <crm:P11_had_participant rdf:resource="https://example.org/query/person/bob"/>
+    <edm:occurredAt rdf:resource="https://example.org/query/time/1930"/>
+  </edm:Event>
+  <edm:Event rdf:about="https://example.org/query/event/unlabelled"/>
+  <rdf:Description rdf:about="https://example.org/query/event-type/creation">
+    <skos:prefLabel>Herstellung</skos:prefLabel>
+  </rdf:Description>
+  <rdf:Description rdf:about="https://example.org/query/event-type/restoration">
+    <skos:prefLabel>Restaurierung</skos:prefLabel>
+  </rdf:Description>
+  <edm:TimeSpan rdf:about="https://example.org/query/time/1903">
+    <skos:prefLabel>1903</skos:prefLabel>
+  </edm:TimeSpan>
+  <edm:TimeSpan rdf:about="https://example.org/query/time/1930">
+    <skos:prefLabel>1930</skos:prefLabel>
+  </edm:TimeSpan>
+</rdf:RDF>

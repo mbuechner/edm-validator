@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Datenmodell Version 0.1 -->
+<!-- Ich habe eine xml:base eingefügt; Namespace von dcat korrigiert -->
+<rdf:RDF
+	xmlns:ddb="https://www.deutsche-digitale-bibliothek.de/ddb/"
+	xmlns:gndo="https://d-nb.info/standards/elementset/gnd#"
+	xmlns:dcterms="http://purl.org/dc/terms/"
+	xmlns:foaf="http://xmlns.com/foaf/0.1/"
+	xmlns:crm="http://www.cidoc-crm.org/cidoc-crm/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:rda="http://rdvocab.info/ElementsGr2/"
+	xmlns:edm="http://www.europeana.eu/schemas/edm/"
+	xmlns:org="http://www.w3.org/ns/org#"
+	xmlns:ore="http://www.openarchives.org/ore/terms/"
+	xmlns:owl="http://www.w3.org/2002/07/owl#"
+	xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+	xmlns:wgs84="http://www.w3.org/2003/01/geo/wgs84_pos#"
+	xmlns:dcat="http://www.w3.org/ns/dcat#"
+	xmlns:bf="http://id.loc.gov/ontologies/bibframe/"
+	xmlns:adms="http://www.w3.org/ns/adms#"
+	xmlns:marcrel="http://id.loc.gov/vocabulary/relators/"
+	xmlns:prov="http://www.w3.org/ns/prov#"
+	xml:base="https://api.deutsche-digitale-bibliothek.de/items/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I">
+	<!-- Das Kulturobjekt bekommt den www-item-IRI vom Frontend, sonst API und ohne Version -->
+	<edm:ProvidedCHO
+		rdf:about="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+	<ore:Aggregation rdf:about="#dataProviderAggregation">
+		<edm:aggregatedCHO
+			rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+		<edm:isShownAt
+			rdf:resource="https://onlinekatalog.kunsthalle-bremen.de/DE-MUS-027614/object/39580"/>
+		<edm:isShownBy
+			rdf:resource="https://onlinekatalog.kunsthalle-bremen.de/DE-MUS-027614/object/39580/114530"/>
+		<edm:object
+			rdf:resource="https://onlinekatalog.kunsthalle-bremen.de/DE-MUS-027614/object/39580/114530"/>
+		<edm:dataProvider
+			rdf:resource="https://www.deutsche-digitale-bibliothek.de/organization/LXT6FYRN57Y6YBMRPDUZMTCVV5PJXDA3"/>
+		<edm:rights rdf:resource="http://creativecommons.org/publicdomain/mark/1.0/"/>
+	</ore:Aggregation>
+	<ore:Aggregation rdf:about="#ddbAggregation">
+		<edm:aggregatedCHO
+			rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+		<!-- Es handelt sich hier um IIIF. Kann (und sollte) man das nicht als Service modellieren? -->
+		<edm:preview
+			rdf:resource="https://iiif.deutsche-digitale-bibliothek.de/image/2/07c42563-7942-4ed4-ad68-ed580fb689e0/full/!300,300/0/default.jpg"/>
+		<edm:provider>Deutsche Digitale Bibliothek</edm:provider>
+		<dcterms:modified>2026-07-24T09:07:06+0200</dcterms:modified>
+		<dcterms:isPartOf rdf:resource="https://api.deutsche-digitale-bibliothek.de/datasets/MONALISAMONALISAMONALISAMONALISA"/>
+		<bf:adminMetadata rdf:resource="https://api.deutsche-digitale-bibliothek.de/records/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+		<!-- TODO -->
+		<bf:adminMetadata rdf:resource="https://api.deutsche-digitale-bibliothek.de/records/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I#bfMetadata"/>
+	</ore:Aggregation>
+	<edm:WebResource
+		rdf:about="https://onlinekatalog.kunsthalle-bremen.de/DE-MUS-027614/object/39580">
+		<dc:format>application/html</dc:format>
+		<edm:rights rdf:resource="https://creativecommons.org/publicdomain/mark/1.0/"/>
+		<dc:type rdf:resource="http://ddb.vocnet.org/medientyp/mt002"/>
+		<edm:type>IMAGE</edm:type>
+	</edm:WebResource>
+	<!-- Wie werden IIIF-Ressourcen abgebildet? -->
+	<edm:WebResource
+		rdf:about="https://onlinekatalog.kunsthalle-bremen.de/DE-MUS-027614/object/39580/114530">
+		<dcterms:identifier>f07c42563-7942-4ed4-ad68-ed580fb689e0</dcterms:identifier>
+		<dc:format>image/jpeg</dc:format>
+		<edm:rights rdf:resource="http://creativecommons.org/publicdomain/mark/1.0/"/>
+		<dc:type rdf:resource="http://ddb.vocnet.org/medientyp/mt002"/>
+		<edm:type>IMAGE</edm:type>
+		<ddb:licenseGroup>rights_001</ddb:licenseGroup>
+	</edm:WebResource>
+	<ore:Proxy rdf:about="#dataProviderProxy">
+		<dc:creator rdf:resource="https://d-nb.info/gnd/119314851"/>
+		<dc:creator rdf:resource="https://d-nb.info/gnd/11852786X"/>
+		<dc:identifier>1851/865 (Inventarnummer)</dc:identifier>
+		<dc:title xml:lang="ger">Tanzendes Bauernpaar</dc:title>
+		<dc:type rdf:resource="http://vocab.getty.edu/aat/300041273"/>
+		<dcterms:created>1568-1619 (Herstellung)</dcterms:created>
+		<dcterms:created>1514 (Entwurf)</dcterms:created>
+		<dcterms:extent xml:lang="zxx">Platte: 114 x 72 mm</dcterms:extent>
+		<dcterms:extent xml:lang="zxx">Blatt: 117 x 74 mm</dcterms:extent>
+		<ddb:ddbProxy>false</ddb:ddbProxy>
+		<edm:currentLocation rdf:resource="https://sws.geonames.org/2944387/"/>
+		<edm:hasMet rdf:resource="#Event01"/>
+		<edm:hasMet rdf:resource="#Event02"/>
+		<edm:type>IMAGE</edm:type>
+		<!-- der URI ist wohl: https://isil.staatsbibliothek-berlin.de/isil/DE-MUS-027614 -->
+		<marcrel:rps rdf:resource="http://ld.zdb-services.de/resource/organisations/DE-MUS-027614"/>
+		<ore:proxyFor
+			rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+		<ore:proxyIn rdf:resource="#dataProviderAggregation"/>
+	</ore:Proxy>
+	<ore:Proxy rdf:about="#ddbProxy">
+		<ddb:ddbProxy>true</ddb:ddbProxy>
+		<edm:hasType rdf:resource="https://d-nb.info/gnd/4113357-2"/>
+		<!-- Dieser Wert ist Ergebniss der Anwendung der Objekttyp-Konkordanz und wird für die Objekttyp-Facette ausgewertet.	-->
+		<ore:lineage rdf:resource="#dataProviderProxy"/>
+		<ore:proxyFor
+			rdf:resource="https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I"/>
+		<ore:proxyIn rdf:resource="#ddbAggregation"/>
+	</ore:Proxy>
+	<skos:Concept rdf:about="http://ddb.vocnet.org/medientyp/mt002">
+		<skos:prefLabel xml:lang="ger">Bild</skos:prefLabel>
+		<skos:notation>mediatype_002</skos:notation>
+	</skos:Concept>
+	<skos:Concept rdf:about="http://ddb.vocnet.org/medientyp/mt002">
+		<skos:prefLabel xml:lang="ger">Bild</skos:prefLabel>
+		<skos:notation>mediatype_002</skos:notation>
+	</skos:Concept>
+	<!-- ist http! -->
+	<skos:Concept rdf:about="http://vocab.getty.edu/aat/300041273">
+		<skos:prefLabel xml:lang="ger">Druckgraphik</skos:prefLabel>
+	</skos:Concept>
+	<skos:Concept rdf:about="http://vocab.getty.edu/aat/300041341">
+		<skos:prefLabel xml:lang="ger">Kupferstich</skos:prefLabel>
+	</skos:Concept>
+	<skos:Concept rdf:about="https://d-nb.info/gnd/4113357-2">
+		<skos:prefLabel xml:lang="de">Druckgrafik</skos:prefLabel>
+	</skos:Concept>
+	<skos:Concept rdf:about="http://terminology.lido-schema.org/lido00007">
+		<!-- neu für Ereignisse -->
+		<skos:prefLabel xml:lang="ger">Herstellung</skos:prefLabel>
+	</skos:Concept>
+	<skos:Concept rdf:about="http://terminology.lido-schema.org/lido00224">
+		<!-- neu für Ereignisse -->
+		<skos:prefLabel xml:lang="ger">Entwurf (Aktivität)</skos:prefLabel>
+	</skos:Concept>
+	<skos:Concept rdf:about="http://ddb.vocnet.org/sparte/sparte006">
+		<skos:notation>sec_06</skos:notation>
+		<skos:prefLabel>Museum</skos:prefLabel>
+	</skos:Concept>
+	<!-- eher Fragmentidentifier -->
+	<edm:Event rdf:about="#Event01">
+		<edm:hasType rdf:resource="http://terminology.lido-schema.org/lido00007"/>
+		<crm:P11_had_participant rdf:resource="https://d-nb.info/gnd/119314851"/>
+		<edm:occurredAt rdf:resource="#TimeSpan02"/>
+	</edm:Event>
+	<edm:Event rdf:about="#Event02">
+		<edm:hasType rdf:resource="http://terminology.lido-schema.org/lido00224"/>
+		<crm:P11_had_participant rdf:resource="https://d-nb.info/gnd/11852786X"/>
+		<edm:occurredAt rdf:resource="#TimeSpan01"/>
+	</edm:Event>
+	<edm:Agent rdf:about="https://d-nb.info/gnd/119314851">
+		<skos:prefLabel xml:lang="zxx">Hieronymus Wierix</skos:prefLabel>
+		<edm:wasPresentAt rdf:resource="#Event01"/>
+	</edm:Agent>
+	<edm:Agent rdf:about="https://d-nb.info/gnd/11852786X">
+		<skos:prefLabel xml:lang="zxx">Albrecht Dürer</skos:prefLabel>
+		<edm:wasPresentAt rdf:resource="#Event02"/>
+	</edm:Agent>
+	<edm:TimeSpan rdf:about="#TimeSpan01">
+		<skos:prefLabel>1514</skos:prefLabel>
+		<edm:begin>1514-01-01</edm:begin>
+		<edm:end>1514-12-31</edm:end>
+	</edm:TimeSpan>
+	<edm:TimeSpan rdf:about="#TimeSpan02">
+		<skos:prefLabel>1568-1619</skos:prefLabel>
+		<edm:begin>1568-01-01</edm:begin>
+		<edm:end>1619-12-31</edm:end>
+	</edm:TimeSpan>
+	<edm:Place rdf:about="https://sws.geonames.org/2944387/">
+		<skos:prefLabel xml:lang="ger">Bremen</skos:prefLabel>
+	</edm:Place>
+	<foaf:Organization
+		rdf:about="https://www.deutsche-digitale-bibliothek.de/organization/LXT6FYRN57Y6YBMRPDUZMTCVV5PJXDA3">
+		<skos:prefLabel xml:lang="ger">Kunsthalle Bremen - Der Kunstverein in
+			Bremen</skos:prefLabel>
+		<dcterms:identifier>00000079</dcterms:identifier>
+		<org:classification rdf:resource="http://ddb.vocnet.org/sparte/sparte006"/>
+	</foaf:Organization>
+	<foaf:Organization rdf:about="http://ld.zdb-services.de/resource/organisations/DE-MUS-027614">
+		<skos:prefLabel xml:lang="ger">Kunsthalle Bremen</skos:prefLabel>
+	</foaf:Organization>
+	<!-- Das Folgende ist nur ein Ansatz und nicht abgeschlossen -->
+	<bf:AdminMetadata rdf:about="https://api.deutsche-digitale-bibliothek.de/records/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I">
+		<bf:adminMetadataFor rdf:resource=""/>
+		<!-- Da brauchen wir einen URI! -->
+		<dcterms:conformsTo rdf:resource="https://api.deutsche-digitale-bibliothek.de/profiles/record-metadata/ddb-v1"/>
+		<!-- alter API-Endpunkt als Bsp. -->
+		<prov:wasDerivedFrom rdf:resource="/source/record"/>
+		<!-- issues und crteated? -->
+		<dcterms:modified>2026-07-24T09:07:16+0200</dcterms:modified>
+		<!-- Europeana gibt die Lizenz als Feld im HTTP-Header aus: Prüfen! -->
+		<dcterms:rights rdf:resource="https://creativecommons.org/publicdomain/zero/1.0/"/>
+		<!-- adms:Identifier ? -->
+		<ddb:itemId>224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I</ddb:itemId>
+		<ddb:providerItemID>DE-MUS-027614/lido/39580</ddb:providerItemID>
+		<!-- Das sollten wir hoffentlich nicht mehr brauchen -->
+		<ddb:recordType>Kultur</ddb:recordType>
+	</bf:AdminMetadata>
+	<prov:Entity rdf:about="/source/record">
+		<dc:type>Source Record</dc:type>
+		<dcterms:conformsTo rdf:resource="http://www.lido-schema.org/"/>
+	</prov:Entity>
+	<dcat:Dataset rdf:about="https://api.deutsche-digitale-bibliothek.de/datasets/MONALISAMONALISAMONALISAMONALISA">
+		<dcat:version>13</dcat:version>
+		<dcterms:identifier>4167248951507697VGAm</dcterms:identifier>
+		<dcterms:title>Gesamtlieferung - LIDO</dcterms:title>
+		<ddb:mappingVersion>6.22</ddb:mappingVersion>
+	</dcat:Dataset>
+</rdf:RDF>

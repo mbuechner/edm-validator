@@ -1,6 +1,0 @@
-/* Keep the application identity within Bootstrap's responsive navbar. */
-.app-brand-logo { display: block; width: 7.2rem; height: 2rem; object-fit: contain; }
-.app-brand-title { font-size: 1rem; font-weight: 600; color: #383838; }
-@media (max-width: 575.98px) {
-    .app-brand-logo { width: 2rem; }
-}

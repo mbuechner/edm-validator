@@ -1,0 +1,280 @@
+# Portalansicht: eine Ergebniszeile pro Objekt, 20 Felder.
+# Standard-SPARQL 1.1; alle vorhandenen Label-Sprachen bleiben erhalten.
+# Voraussetzung: ProvidedCHO mit Proxy und Datenlieferanten-Aggregation.
+
+PREFIX dc:       <http://purl.org/dc/elements/1.1/>
+PREFIX dcterms:  <http://purl.org/dc/terms/>
+PREFIX edm:      <http://www.europeana.eu/schemas/edm/>
+PREFIX ore:      <http://www.openarchives.org/ore/terms/>
+PREFIX skos:     <http://www.w3.org/2004/02/skos/core#>
+PREFIX org:      <http://www.w3.org/ns/org#>
+PREFIX marcrel:  <http://id.loc.gov/vocabulary/relators/>
+PREFIX ddb:      <https://www.deutsche-digitale-bibliothek.de/ddb/>
+PREFIX crm:      <http://www.cidoc-crm.org/cidoc-crm/>
+PREFIX bf:       <http://id.loc.gov/ontologies/bibframe/>
+
+SELECT
+  ?id ?portal_url ?titel ?beschreibung
+  ?objekttyp ?beteiligte ?ereignisse ?datierung
+  ?abmessungen ?identifikatoren ?ort ?aufbewahrung
+  ?datenlieferant ?sparte ?vorschau_url ?original_url
+  ?digitalisat_url ?digitalisat_format ?digitalisat_rechte_url ?metadaten_rechte_url
+
+WHERE {
+  # 1. Objekt auswählen. Für alle Objekte den VALUES-Block entfernen.
+  VALUES ?objekt {
+    <https://www.deutsche-digitale-bibliothek.de/item/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I>
+  }
+  ?objekt a edm:ProvidedCHO .
+  FILTER EXISTS {
+    ?proxy a ore:Proxy ; ore:proxyFor ?objekt ;
+           ore:proxyIn [ edm:aggregatedCHO ?objekt ; edm:dataProvider [] ] .
+  }
+
+  # 2. Jedes Textfeld einzeln sammeln: keine Kombination voneinander unabhängiger Felder.
+  # Nur vorhandene, in Text umwandelbare Werte gehen in GROUP_CONCAT ein.
+  # Die Reihenfolge innerhalb eines Textfelds ist nicht festgelegt.
+  # Titel
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?titel)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dc:title ?quellwert .
+      BIND(STR(?quellwert) AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Beschreibung
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?beschreibung)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy (dc:description|dcterms:description) ?quellwert .
+      BIND(STR(?quellwert) AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Objekttyp
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?objekttyp)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dc:type ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Beteiligte
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?beteiligte)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dc:creator ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Ereignisse: Typ, Akteur und Zeit bleiben beim selben Ereignis
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?ereignisse)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy edm:hasMet ?ereignis .
+      OPTIONAL {
+        ?ereignis edm:hasType ?typ .
+        OPTIONAL { ?typ skos:prefLabel ?typLabel }
+      }
+      OPTIONAL {
+        ?ereignis crm:P11_had_participant ?akteur .
+        OPTIONAL { ?akteur skos:prefLabel ?akteurLabel }
+      }
+      OPTIONAL { ?ereignis edm:occurredAt/skos:prefLabel ?zeitLabel }
+      BIND(REPLACE(CONCAT(
+        COALESCE(STR(?typLabel), STR(?typ), "Ereignis"),
+        IF(BOUND(?akteur), CONCAT(": ", STR(COALESCE(?akteurLabel, ?akteur))), ""),
+        IF(BOUND(?zeitLabel), CONCAT(" (", STR(?zeitLabel), ")"), "")
+      ), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Datierung
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?datierung)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dcterms:created ?quellwert .
+      BIND(STR(?quellwert) AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Abmessungen
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?abmessungen)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dcterms:extent ?quellwert .
+      BIND(STR(?quellwert) AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Identifikatoren
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?identifikatoren)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy dc:identifier ?quellwert .
+      BIND(STR(?quellwert) AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Ort
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?ort)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy edm:currentLocation ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Aufbewahrung
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?aufbewahrung)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] .
+      ?proxy marcrel:rps ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Datenlieferant aus der zum Proxy passenden Aggregation
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?datenlieferant)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt .
+      ?aggregation edm:dataProvider ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # Sparte dieses Datenlieferanten
+  OPTIONAL {
+    SELECT ?objekt (GROUP_CONCAT(DISTINCT ?wert; separator="; ") AS ?sparte)
+    WHERE {
+      ?proxy a ore:Proxy ; ore:proxyFor ?objekt ; ore:proxyIn ?aggregation .
+      ?aggregation edm:aggregatedCHO ?objekt .
+      ?aggregation edm:dataProvider/org:classification ?ressource .
+      OPTIONAL { ?ressource skos:prefLabel ?label }
+      BIND(REPLACE(STR(COALESCE(?label, ?ressource)), "\\s+", " ") AS ?wert)
+      FILTER(BOUND(?wert))
+    }
+    GROUP BY ?objekt
+  }
+
+  # 3. URLs: Bei mehreren Werten gewinnt die erste URL in Textsortierung.
+  OPTIONAL {
+    SELECT ?objekt (MIN(STR(?url)) AS ?vorschau_url)
+    WHERE { ?aggregation edm:aggregatedCHO ?objekt ; edm:preview ?url }
+    GROUP BY ?objekt
+  }
+  OPTIONAL {
+    SELECT ?objekt (MIN(STR(?url)) AS ?original_url)
+    WHERE { ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] ; edm:isShownAt ?url }
+    GROUP BY ?objekt
+  }
+
+  # 4. Ein Digitalisat auswählen. Format und Rechte beziehen sich genau darauf.
+  OPTIONAL {
+    {
+      SELECT ?objekt (MIN(STR(?url)) AS ?digitalisat_url)
+      WHERE {
+        ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] ; edm:isShownBy ?url .
+        FILTER(isIRI(?url))
+      }
+      GROUP BY ?objekt
+    }
+    BIND(IRI(?digitalisat_url) AS ?digitalisat)
+    OPTIONAL {
+      SELECT ?digitalisat (MIN(STR(?format)) AS ?digitalisat_format)
+      WHERE { ?digitalisat dc:format ?format }
+      GROUP BY ?digitalisat
+    }
+    OPTIONAL {
+      SELECT ?digitalisat (MIN(STR(?rechte)) AS ?ressourceRechte)
+      WHERE { ?digitalisat edm:rights ?rechte }
+      GROUP BY ?digitalisat
+    }
+    OPTIONAL {
+      SELECT ?objekt ?digitalisat (MIN(STR(?rechte)) AS ?aggregationRechte)
+      WHERE {
+        ?aggregation edm:aggregatedCHO ?objekt ; edm:dataProvider [] ;
+                     edm:isShownBy ?digitalisat ; edm:rights ?rechte .
+      }
+      GROUP BY ?objekt ?digitalisat
+    }
+    # Eigene Rechte des Digitalisats haben Vorrang vor den Rechten seiner Aggregation.
+    BIND(COALESCE(?ressourceRechte, ?aggregationRechte) AS ?digitalisat_rechte_url)
+  }
+
+  # 5. Metadaten: erst eine ID auswählen, dann die Rechte des passenden Metadatensatzes lesen.
+  OPTIONAL {
+    SELECT ?objekt (MIN(STR(?recordId)) AS ?datensatzId)
+    WHERE {
+      ?aggregation edm:aggregatedCHO ?objekt ; bf:adminMetadata ?record .
+      ?record ddb:itemId ?recordId .
+    }
+    GROUP BY ?objekt
+  }
+  OPTIONAL {
+    SELECT ?objekt ?datensatzId (MIN(STR(?rechte)) AS ?metadaten_rechte_url)
+    WHERE {
+      ?aggregation edm:aggregatedCHO ?objekt ; bf:adminMetadata ?record .
+      ?record ddb:itemId ?recordId ; dcterms:rights ?rechte .
+      BIND(STR(?recordId) AS ?datensatzId)
+    }
+    GROUP BY ?objekt ?datensatzId
+  }
+
+  # 6. ID und Portal-URL. Nicht vorhandene Felder erscheinen im flachen JSON als "".
+  BIND(STR(?objekt) AS ?portal_url)
+  BIND(COALESCE(?datensatzId, REPLACE(STR(?objekt), "^.*/", "")) AS ?id)
+}
+ORDER BY ?portal_url

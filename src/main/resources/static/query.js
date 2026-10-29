@@ -3,10 +3,8 @@
     'use strict';
     const byId = id => document.getElementById(id);
     if (!byId('queryWorkspace') || !window.RdfSource) return;
-    const defaults = {
-        xpath: `/rdf:RDF/edm:Place[
-  @rdf:about = /rdf:RDF/edm:ProvidedCHO/edm:currentLocation/@rdf:resource
-]/skos:prefLabel/text()`,
+    const examples = {
+        xpath: '//dc:title/text()',
         sparql: `PREFIX edm:  <http://www.europeana.eu/schemas/edm/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
@@ -16,43 +14,13 @@ WHERE {
   ?place skos:prefLabel ?locationLabel .
 }`
     };
-    let modulePromise = null;
     let sparqlRevision = 0;
-    let running = false;
+    let sparqlRun = 0;
+    let sparqlBusy = false;
+    let client = null;
+    let exampleRevision = 0;
+    let portalQueryPromise = null;
     let xmlCache = null;
-
-    const rdfLibrary = () => typeof window.$rdf?.graph === 'function' && typeof window.$rdf.parse === 'function'
-        && typeof window.$rdf.SPARQLToQuery === 'function' ? window.$rdf : null;
-
-    function loadRdflib() {
-        const loaded = rdfLibrary();
-        if (loaded) return Promise.resolve(loaded);
-        if (!modulePromise) modulePromise = new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = './vendor/rdflib-2.4.0.min.js';
-            script.async = true;
-            const timeout = window.setTimeout(fail, 30000);
-            function finish() {
-                window.clearTimeout(timeout);
-                script.onload = null;
-                script.onerror = null;
-            }
-            function fail() {
-                finish();
-                script.remove();
-                reject(new Error('Die SPARQL-Bibliothek konnte nicht geladen werden. Bitte erneut versuchen.'));
-            }
-            script.onload = () => {
-                const library = rdfLibrary();
-                if (!library) return fail();
-                finish();
-                resolve(library);
-            };
-            script.onerror = fail;
-            document.head.append(script);
-        }).catch(error => { modulePromise = null; throw error; });
-        return modulePromise;
-    }
 
     function parseXml(text) {
         const xml = new DOMParser().parseFromString(text, 'application/xml');
@@ -135,73 +103,141 @@ WHERE {
         } catch (error) { target.textContent = 'XPath-Fehler: ' + error.message; }
     }
 
-    function showBindings(target, query, rows) {
-        const columns = (query.vars || []).map(variable => variable.toNT ? variable.toNT() : '?' + variable.value);
-        if (!columns.length) { showRows(target, rows.map(row => JSON.stringify(row))); return; }
-        if (!rows.length) { showRows(target, []); return; }
-        const heading = document.createElement('strong');
-        heading.textContent = rows.length + ' Treffer';
-        const wrapper = document.createElement('div');
-        wrapper.className = 'table-responsive mt-2';
-        const table = document.createElement('table');
-        table.className = 'table table-sm table-striped align-top mb-0';
-        const head = table.createTHead().insertRow();
-        for (const column of columns) {
-            const cell = document.createElement('th');
-            cell.scope = 'col';
-            cell.textContent = column;
-            head.append(cell);
+    const phaseLabels = {
+        initializing: 'Oxigraph wird initialisiert …',
+        loading: 'RDF/XML wird in den Store geladen …',
+        querying: 'SPARQL-Abfrage läuft …'
+    };
+
+    function setSparqlBusy(busy) {
+        sparqlBusy = busy;
+        byId('runSparqlBtn').disabled = busy;
+        if (busy) byId('sparqlQueryResult').setAttribute('aria-busy', 'true');
+        else byId('sparqlQueryResult').removeAttribute('aria-busy');
+    }
+
+    function clearSparqlResult(message) {
+        const target = byId('sparqlQueryResult');
+        target.replaceChildren();
+        target.classList.add('d-none');
+        byId('sparqlMetrics').classList.add('d-none');
+        byId('sparqlState').textContent = message;
+    }
+
+    function invalidateSparql(message) {
+        sparqlRevision++;
+        sparqlRun++;
+        client?.invalidate();
+        setSparqlBusy(false);
+        clearSparqlResult(message);
+    }
+
+    function queryClient() {
+        if (!client) {
+            if (!window.SparqlClient) throw new Error('Der SPARQL-Worker konnte nicht vorbereitet werden. Bitte die Seite neu laden.');
+            client = window.SparqlClient.create({ onStatus(status) {
+                if (sparqlBusy) byId('sparqlState').textContent = phaseLabels[status.phase] || 'Abfrage wird vorbereitet …';
+            }});
         }
-        const body = table.createTBody();
-        for (const binding of rows) {
-            const row = body.insertRow();
-            for (const column of columns) {
-                const value = binding[column];
-                const cell = row.insertCell();
-                cell.className = 'text-break';
-                cell.textContent = value ? (value.toNT ? value.toNT() : value.value || String(value)) : '';
-            }
-        }
-        wrapper.append(table);
-        target.replaceChildren(heading, wrapper);
+        return client;
+    }
+
+    const milliseconds = value => Number.isFinite(value)
+        ? new Intl.NumberFormat('de-DE', {maximumFractionDigits: 2}).format(value) + ' ms' : '–';
+
+    function showTimings(timings, tripleCount) {
+        if (!timings) return;
+        const parts = ['RDF laden: ' + milliseconds(timings.loadMs), 'Abfrage: ' + milliseconds(timings.queryMs)];
+        if (timings.initMs > 0) parts.push('Oxigraph initialisieren: ' + milliseconds(timings.initMs));
+        if (timings.cacheHit) parts.push('Store wiederverwendet');
+        if (Number.isFinite(tripleCount)) parts.push(tripleCount + ' Tripel');
+        byId('sparqlMetrics').textContent = parts.join(' · ');
+        byId('sparqlMetrics').classList.remove('d-none');
     }
 
     async function runSparql() {
-        if (running) return;
+        if (sparqlBusy) return;
         const source = RdfSource.get();
         const queryText = byId('sparqlQueryInput').value.trim();
-        const target = byId('sparqlQueryResult');
         if (!source.rdfXml.trim() || !queryText) {
-            target.textContent = 'Bitte RDF/XML und eine SPARQL-Abfrage eingeben.';
+            clearSparqlResult('Bitte RDF/XML und eine SPARQL-Abfrage eingeben.');
             return;
         }
         const sourceRevision = RdfSource.revision();
         const revision = sparqlRevision;
-        const button = byId('runSparqlBtn');
-        running = true;
-        button.disabled = true;
-        target.setAttribute('aria-busy', 'true');
-        target.textContent = 'SPARQL-Abfrage läuft …';
+        const run = ++sparqlRun;
+        const current = () => run === sparqlRun && revision === sparqlRevision && sourceRevision === RdfSource.revision();
+        clearSparqlResult('Abfrage wird vorbereitet …');
+        setSparqlBusy(true);
         try {
-            parsedXml(source);
-            const rdflib = await loadRdflib();
-            if (revision !== sparqlRevision || sourceRevision !== RdfSource.revision()) return;
-            const store = rdflib.graph();
-            rdflib.parse(source.rdfXml, store, source.documentIri || window.location.href, 'application/rdf+xml');
-            const query = rdflib.SPARQLToQuery(queryText, true, store);
-            if (!query) throw new Error('Die SPARQL-Abfrage konnte nicht gelesen werden.');
-            showBindings(target, query, store.querySync(query));
+            const result = await queryClient().query({rdfXml: source.rdfXml, baseIri: source.documentIri || window.location.href}, queryText);
+            if (!current()) return;
+            const target = byId('sparqlQueryResult');
+            const pre = document.createElement('pre');
+            pre.className = 'source-code border rounded bg-body-tertiary p-3 mb-0 overflow-auto';
+            pre.setAttribute('aria-label', 'SPARQL-Ergebnis als JSON');
+            if (window.CodeView) CodeView.render(pre, result.json, 'json');
+            else pre.textContent = result.json;
+            target.replaceChildren(pre);
+            target.classList.remove('d-none');
+            byId('sparqlResultHeading').textContent = result.kind === 'graph' ? 'JSON-LD-Ergebnis' : 'JSON-Ergebnis';
+            byId('sparqlState').textContent = result.kind === 'select'
+                ? result.rowCount + (result.rowCount === 1 ? ' Ergebniszeile.' : ' Ergebniszeilen.') : 'Abfrage abgeschlossen.';
+            showTimings(result.timings, result.tripleCount);
         } catch (error) {
-            if (revision === sparqlRevision && sourceRevision === RdfSource.revision()) target.textContent = 'SPARQL-Fehler: ' + error.message;
+            if (!current() || error.name === 'AbortError') return;
+            byId('sparqlState').textContent = error.phase === 'loading' ? 'RDF/XML konnte nicht geladen werden.' : 'SPARQL-Abfrage fehlgeschlagen.';
+            const target = byId('sparqlQueryResult');
+            if (window.AppMessages) AppMessages.show(target, 'danger', error.message);
+            else { target.textContent = error.message; target.classList.remove('d-none'); }
+            showTimings(error.timings);
         } finally {
-            running = false;
-            button.disabled = false;
-            target.removeAttribute('aria-busy');
+            if (current()) setSparqlBusy(false);
+        }
+    }
+
+    function portalQuery() {
+        if (!portalQueryPromise) portalQueryPromise = fetch('./queries/portal-select.rq')
+            .then(async response => {
+                if (!response.ok) throw new Error('Die Portal-Beispielabfrage konnte nicht geladen werden (HTTP ' + response.status + ').');
+                const text = await response.text();
+                if (!text.trim()) throw new Error('Die Portal-Beispielabfrage ist leer.');
+                return text;
+            }).catch(error => { portalQueryPromise = null; throw error; });
+        return portalQueryPromise;
+    }
+
+    function setSparqlExample(text) {
+        byId('sparqlQueryInput').value = text;
+        invalidateSparql('Beispiel geladen. Die Abfrage kann bearbeitet und ausgeführt werden.');
+    }
+
+    async function loadPortalExample() {
+        const button = byId('loadSparqlExample2Btn');
+        const request = ++exampleRevision;
+        const revision = sparqlRevision;
+        button.disabled = true;
+        button.textContent = 'Wird geladen …';
+        button.setAttribute('aria-busy', 'true');
+        try {
+            const text = await portalQuery();
+            if (request !== exampleRevision || revision !== sparqlRevision) return;
+            setSparqlExample(text);
+        } catch (error) {
+            if (request !== exampleRevision || revision !== sparqlRevision) return;
+            clearSparqlResult('Beispielabfrage konnte nicht geladen werden.');
+            AppMessages.show(byId('sparqlQueryResult'), 'danger', error.message);
+        } finally {
+            if (request === exampleRevision) {
+                button.disabled = false;
+                button.textContent = 'Beispiel 2';
+                button.removeAttribute('aria-busy');
+            }
         }
     }
 
     function selectMode(mode) {
-        for (const name of ['xpath', 'sparql']) {
+        for (const name of ['sparql', 'xpath']) {
             const selected = name === mode;
             const tab = byId(name + 'Tab');
             tab.classList.toggle('active', selected);
@@ -211,31 +247,37 @@ WHERE {
         }
     }
 
-    for (const mode of ['xpath', 'sparql']) {
-        const title = mode === 'xpath' ? 'XPath' : 'Sparql';
-        byId(mode + 'QueryInput').value = defaults[mode];
+    byId('xpathQueryInput').value = examples.xpath;
+    for (const mode of ['sparql', 'xpath']) {
         byId(mode + 'QueryInput').addEventListener('input', () => {
-            if (mode === 'sparql') sparqlRevision++;
-            byId(mode + 'QueryResult').textContent = 'Abfrage geändert. Bitte erneut ausführen.';
-        });
-        byId('load' + title + 'ExampleBtn').addEventListener('click', () => {
-            byId(mode + 'QueryInput').value = defaults[mode];
-            byId(mode + 'QueryInput').dispatchEvent(new Event('input'));
+            if (mode === 'sparql') invalidateSparql('Abfrage geändert. Bitte erneut ausführen.');
+            else byId('xpathQueryResult').textContent = 'Abfrage geändert. Bitte erneut ausführen.';
         });
         byId(mode + 'Tab').addEventListener('click', () => selectMode(mode));
         byId(mode + 'Tab').addEventListener('keydown', event => {
             if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
             event.preventDefault();
-            const next = event.key === 'Home' ? 'xpath' : event.key === 'End' ? 'sparql' : mode === 'xpath' ? 'sparql' : 'xpath';
+            const next = event.key === 'Home' ? 'sparql' : event.key === 'End' ? 'xpath' : mode === 'xpath' ? 'sparql' : 'xpath';
             selectMode(next);
             byId(next + 'Tab').focus();
         });
     }
     byId('runXPathBtn').addEventListener('click', runXPath);
+    byId('loadXPathExampleBtn').addEventListener('click', () => {
+        byId('xpathQueryInput').value = examples.xpath;
+        byId('xpathQueryInput').dispatchEvent(new Event('input'));
+    });
     byId('runSparqlBtn').addEventListener('click', runSparql);
+    byId('loadSparqlExample1Btn').addEventListener('click', () => setSparqlExample(examples.sparql));
+    byId('loadSparqlExample2Btn').addEventListener('click', loadPortalExample);
     RdfSource.subscribe(() => {
         xmlCache = null;
-        sparqlRevision++;
-        for (const mode of ['xpath', 'sparql']) byId(mode + 'QueryResult').textContent = 'RDF/XML geändert. Bitte die Abfrage erneut ausführen.';
+        byId('xpathQueryResult').textContent = 'RDF/XML geändert. Bitte die Abfrage erneut ausführen.';
+        invalidateSparql('RDF/XML geändert. Bitte die Abfrage erneut ausführen.');
+    });
+    window.addEventListener('pagehide', () => {
+        sparqlRun++;
+        client?.invalidate();
+        setSparqlBusy(false);
     });
 })();

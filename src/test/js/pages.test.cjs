@@ -51,8 +51,8 @@ if (JSDOM) {
                 const brand = navbar.querySelector('.navbar-brand');
                 assert.equal(brand.querySelector('img').getAttribute('src'), './images/ddbpro.svg');
                 assert.equal(brand.querySelector('img').getAttribute('alt'), 'DDBpro');
-                assert.equal(brand.querySelector('.app-brand-title').textContent, 'EDM-Werkzeuge');
-                assert.ok(brand.querySelector('source[srcset="./images/ddb-signet.svg"]'));
+                assert.equal(brand.querySelector('span').textContent, 'EDM-Werkzeuge');
+                assert.ok(brand.querySelector('img[src="./images/ddb-signet.svg"]'));
                 const toggle = navbar.querySelector('.navbar-toggler');
                 assert.equal(toggle.type, 'button');
                 assert.ok(document.querySelector(toggle.getAttribute('data-bs-target')).classList.contains('navbar-collapse'));

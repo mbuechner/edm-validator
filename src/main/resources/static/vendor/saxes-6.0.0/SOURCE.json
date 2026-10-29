@@ -1,0 +1,30 @@
+{
+  "packages": {
+    "saxes": "6.0.0",
+    "xmlchars": "2.2.0"
+  },
+  "packaging": "Four unmodified CommonJS module bodies in static IIFEs; sourceMappingURL directives omitted; SaxesParser exposed as ESM named export.",
+  "inputs": [
+    {
+      "file": "xmlchars/xml/1.0/ed5.js",
+      "sha256": "ea350479ab6f6553c0c3395c30ec440fb39821f6902081939831ddf1b5e8fd0f"
+    },
+    {
+      "file": "xmlchars/xml/1.1/ed2.js",
+      "sha256": "461d5c71cc6076dc16aebbfd2d3c506481df5a74f43631d82372a6ffdc239d69"
+    },
+    {
+      "file": "xmlchars/xmlns/1.0/ed3.js",
+      "sha256": "ff14ffa3a2cdfdd1b6077c4a8443dc949f53d5bb56de5ed89d4dbc5d9fdf08f7"
+    },
+    {
+      "file": "saxes/saxes.js",
+      "sha256": "d00e2ba27ed7d6ac961d03ff14d6b8c0eb5bf063ed2c996c22c6df06ac121423"
+    }
+  ],
+  "upstream": {
+    "saxes": "https://github.com/lddubeau/saxes/tree/v6.0.0",
+    "xmlchars": "https://github.com/lddubeau/xmlchars/tree/v2.2.0",
+    "oxigraphCompatibility": "https://github.com/oxigraph/oxigraph/blob/v0.5.13/lib/oxrdfxml/src/parser.rs#L997"
+  }
+}
