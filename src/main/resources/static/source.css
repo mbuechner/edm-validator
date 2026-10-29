@@ -1,10 +1,134 @@
 /* Shared source typography; Bootstrap supplies the surrounding components. */
 .source-code,
 .source-code code,
-.source-code textarea,
-.source-code .line-numbers-rows {
+.source-code textarea {
     font-family: var(--bs-font-monospace, monospace) !important;
     font-size: .75rem !important;
     line-height: 1.4 !important;
     tab-size: 4;
+}
+
+#rdfSource textarea { resize: vertical; }
+#rdfSource .rdf-source-origin { overflow-wrap: anywhere; }
+
+/* The textarea stays in normal flow, so its native resize handle sizes the mirror too. */
+.rdf-source-editor {
+    position: relative;
+    border-radius: var(--bs-border-radius, .375rem);
+    background: var(--bs-body-bg, #fff);
+}
+
+.rdf-source-editor pre,
+.rdf-source-editor textarea,
+.rdf-source-editor code {
+    text-align: left;
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+    letter-spacing: normal;
+    text-shadow: none;
+}
+
+.rdf-source-editor .rdf-source-mirror {
+    display: none;
+    position: absolute;
+    top: var(--bs-border-width, 1px);
+    left: var(--bs-border-width, 1px);
+    width: calc(100% - 2 * var(--bs-border-width, 1px));
+    height: calc(100% - 2 * var(--bs-border-width, 1px));
+    box-sizing: border-box;
+    margin: 0;
+    padding: .375rem .75rem;
+    border: 0;
+    overflow: hidden;
+    color: var(--bs-body-color, #212529);
+    background: var(--bs-body-bg, #fff);
+    pointer-events: none;
+    user-select: none;
+}
+
+.rdf-source-editor .rdf-source-mirror code {
+    display: block;
+    min-width: max-content;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+}
+
+.rdf-source-editor textarea.form-control,
+.rdf-source-editor textarea.form-control:focus {
+    display: block;
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    padding: .375rem .75rem;
+    box-sizing: border-box;
+    overflow: auto;
+    color: var(--bs-body-color, #212529);
+    background: var(--bs-body-bg, #fff);
+    caret-color: var(--bs-body-color, #212529);
+    -webkit-text-fill-color: var(--bs-body-color, #212529);
+}
+
+/* Switch both layers together only after successful highlighting, including on focus. */
+@media (forced-colors: none) {
+    .rdf-source-editor.rdf-source-highlighted .rdf-source-mirror { display: block; }
+
+    .rdf-source-editor.rdf-source-highlighted textarea.form-control,
+    .rdf-source-editor.rdf-source-highlighted textarea.form-control:focus {
+        color: transparent;
+        background: transparent;
+        -webkit-text-fill-color: transparent;
+    }
+}
+
+.rdf-source-editor textarea::selection {
+    background: rgba(var(--bs-primary-rgb, 13, 110, 253), .25);
+    color: var(--bs-body-color, #212529);
+    -webkit-text-fill-color: var(--bs-body-color, #212529);
+}
+
+/* One local, restrained Prism palette for every editable and read-only source view. */
+.source-code .token { background: transparent; }
+.source-code .token.comment,
+.source-code .token.prolog,
+.source-code .token.doctype,
+.source-code .token.cdata,
+.source-code .token.punctuation { color: #727579; }
+.source-code .token.tag,
+.source-code .token.property,
+.source-code .token.keyword,
+.source-code .token.atrule { color: #2d4694; }
+.source-code .token.attr-name,
+.source-code .token.boolean,
+.source-code .token.number { color: #a5003b; }
+.source-code .token.attr-value,
+.source-code .token.string { color: #81002d; }
+.source-code .token.operator,
+.source-code .token.entity,
+.source-code .token.url { color: #383838; }
+.source-code .token.important,
+.source-code .token.bold { font-weight: 600; }
+.source-code .token.italic { font-style: italic; }
+
+@media (forced-colors: active) {
+    .rdf-source-editor .rdf-source-mirror { display: none; }
+
+    .rdf-source-editor textarea.form-control,
+    .rdf-source-editor textarea.form-control:focus {
+        color: CanvasText;
+        background: Canvas;
+        caret-color: CanvasText;
+        -webkit-text-fill-color: CanvasText;
+    }
+
+    .rdf-source-editor textarea::selection {
+        background: Highlight;
+        color: HighlightText;
+        -webkit-text-fill-color: HighlightText;
+    }
+
+    .source-code .token { color: CanvasText; }
 }

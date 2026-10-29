@@ -1,10 +1,19 @@
 package de.ddb.edmvalidator.api;
 
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+
 import java.util.List;
 
+/**
+ * Validation status, per-engine findings and graph preview.
+ * {@code apiUrl} is absent for pasted XML; {@code rdfXml} is absent before a successful
+ * download, and {@code error} is absent when the complete validation passes.
+ */
+@NullMarked
 public record ValidationResponse(
         String inputUrl,
-        String apiUrl,
+        @Nullable String apiUrl,
         boolean patternValid,
         boolean downloadSuccessful,
         boolean xmlSyntaxPassed,
@@ -12,11 +21,11 @@ public record ValidationResponse(
         boolean rdfSyntaxPassed,
         boolean shaclPassed,
         boolean overallPassed,
-        String rdfXml,
+        @Nullable String rdfXml,
         List<RdfGraphNode> graphNodes,
         List<RdfGraphLink> graphLinks,
         List<ValidationResultItem> results,
         String message,
-        String error
+        @Nullable String error
 ) {
 }

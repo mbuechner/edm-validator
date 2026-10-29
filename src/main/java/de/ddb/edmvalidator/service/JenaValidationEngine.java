@@ -1,6 +1,7 @@
 package de.ddb.edmvalidator.service;
 
 import de.ddb.edmvalidator.api.ValidationResultItem;
+import lombok.RequiredArgsConstructor;
 import org.apache.jena.reasoner.ReasonerRegistry;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
@@ -13,6 +14,7 @@ import org.apache.jena.riot.system.StreamRDFLib;
 import org.apache.jena.shacl.Shapes;
 import org.apache.jena.shacl.ShaclValidator;
 import org.apache.jena.shacl.ValidationReport;
+import org.jspecify.annotations.Nullable;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +23,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
 
+/**
+ * Parses RDF/XML and evaluates the bundled SHACL shapes with Apache Jena.
+ * Parsed data models belong to the caller; the inferred shapes are initialized
+ * once and shared by subsequent validation requests.
+ */
 @Component
+@RequiredArgsConstructor
 public class JenaValidationEngine {
 
     private static final String SHAPES_RESOURCE_PATH = "schema/edm_ext_shacl_shapes.ttl";
@@ -32,18 +40,19 @@ public class JenaValidationEngine {
     private final ValidationItemFactory itemFactory;
     private final ValidationIssueEnricher issueEnricher;
 
-    private volatile Shapes jenaShapes;
+    private volatile @Nullable Shapes jenaShapes;
 
-    public JenaValidationEngine(ValidationItemFactory itemFactory, ValidationIssueEnricher issueEnricher) {
-        this.itemFactory = itemFactory;
-        this.issueEnricher = issueEnricher;
+    /** Checks RDF/XML grammar without retaining the parsed statements. */
+    public ValidationResultItem validateRdfXmlGrammar(byte[] rdfXmlBytes) {
+        return validateRdfXmlGrammar(rdfXmlBytes, DdbConstants.DDB_RESOURCE_BASE);
     }
 
-    public ValidationResultItem validateRdfXmlGrammar(byte[] rdfXmlBytes) {
+    /** Uses the same local document base as the other tools when resolving relative IRIs. */
+    public ValidationResultItem validateRdfXmlGrammar(byte[] rdfXmlBytes, String documentIri) {
         try {
             RDFParser.create()
                     .source(new ByteArrayInputStream(rdfXmlBytes))
-                    .base(DdbConstants.DDB_RESOURCE_BASE)
+                    .base(documentIri)
                     .lang(Lang.RDFXML)
                     .errorHandler(ErrorHandlerFactory.errorHandlerStrict)
                     .parse(StreamRDFLib.sinkNull());
@@ -59,11 +68,22 @@ public class JenaValidationEngine {
         }
     }
 
+    /**
+     * Parses a nonempty RDF graph for later SHACL validation and graph rendering.
+     * A failed or empty parse returns a failure result with a {@code null} model.
+     */
     public JenaParseOutcome parseRdfSyntax(byte[] rdfXmlBytes) {
+        return parseRdfSyntax(rdfXmlBytes, DdbConstants.DDB_RESOURCE_BASE);
+    }
+
+    /** Parses against an already checked document IRI without fetching that IRI. */
+    public JenaParseOutcome parseRdfSyntax(byte[] rdfXmlBytes, String documentIri) {
+        Model model = null;
+        boolean transferred = false;
         try {
-            Model model = ModelFactory.createDefaultModel();
+            model = ModelFactory.createDefaultModel();
             RDFDataMgr.read(model, new ByteArrayInputStream(rdfXmlBytes),
-                    DdbConstants.DDB_RESOURCE_BASE, Lang.RDFXML);
+                    documentIri, Lang.RDFXML);
 
             if (model.isEmpty()) {
                 return new JenaParseOutcome(
@@ -71,9 +91,11 @@ public class JenaValidationEngine {
                         null);
             }
 
-            return new JenaParseOutcome(
+            JenaParseOutcome outcome = new JenaParseOutcome(
                     itemFactory.success(ValidationSections.RDF, "Apache Jena", "RDF erfolgreich geladen", model.size(), "Triples"),
                     model);
+            transferred = true;
+            return outcome;
         } catch (RiotException ex) {
             ValidationIssueEnricher.LineCol lineCol = issueEnricher.extractLineCol(ex.getMessage());
             return new JenaParseOutcome(
@@ -87,10 +109,18 @@ public class JenaValidationEngine {
             return new JenaParseOutcome(
                     itemFactory.failure(ValidationSections.RDF, "Apache Jena", ex.getMessage(), null, null, rdfXmlBytes),
                     null);
+        } finally {
+            if (model != null && !transferred) {
+                model.close();
+            }
         }
     }
 
-    public ValidationResultItem validateShacl(Model dataModel, byte[] rdfXmlBytes) {
+    /**
+     * Validates a parsed graph, or reports that validation was skipped when parsing failed.
+     * At most eight violation details are included in the returned message.
+     */
+    public ValidationResultItem validateShacl(@Nullable Model dataModel, byte[] rdfXmlBytes) {
         if (dataModel == null) {
             return itemFactory.failure(ValidationSections.SHACL, "Jena SHACL", "SHACL wurde übersprungen, weil Jena-RDF-Parsing fehlgeschlagen ist.", null, null, rdfXmlBytes);
         }
@@ -145,6 +175,7 @@ public class JenaValidationEngine {
         return sb.toString();
     }
 
+    /** Publishes the fully parsed, inferred shapes only after initialization succeeds. */
     private Shapes getJenaShapes() {
         Shapes current = jenaShapes;
         if (current != null) {
@@ -152,7 +183,8 @@ public class JenaValidationEngine {
         }
 
         synchronized (this) {
-            if (jenaShapes == null) {
+            current = jenaShapes;
+            if (current == null) {
                 Model shapeModel = ModelFactory.createDefaultModel();
                 try (InputStream shapesInput = new ClassPathResource(SHAPES_RESOURCE_PATH).getInputStream();
                      InputStream classesInput = new ClassPathResource(CLASS_DEFINITIONS_RESOURCE_PATH).getInputStream()) {
@@ -163,16 +195,19 @@ public class JenaValidationEngine {
                 }
 
                 Model enhancedShapeModel = ModelFactory.createInfModel(ReasonerRegistry.getOWLReasoner(), shapeModel);
-                jenaShapes = Shapes.parse(enhancedShapeModel.getGraph());
+                current = Shapes.parse(enhancedShapeModel.getGraph());
+                jenaShapes = current;
             }
-            return jenaShapes;
+            return current;
         }
     }
 
     private String jenaInitErrorMessage(Throwable error) {
         Throwable root = error;
-        while (root.getCause() != null && root.getCause() != root) {
-            root = root.getCause();
+        Throwable cause = root.getCause();
+        while (cause != null && cause != root) {
+            root = cause;
+            cause = root.getCause();
         }
         String detail = root.getMessage();
         if (detail == null || detail.isBlank()) {
@@ -181,6 +216,13 @@ public class JenaValidationEngine {
         return JENA_INIT_ERROR_PREFIX + ": " + detail;
     }
 
-    public record JenaParseOutcome(ValidationResultItem result, Model model) {
+    /** Owns the successful parse's data model until all downstream checks and projection finish. */
+    public record JenaParseOutcome(ValidationResultItem result, @Nullable Model model) implements AutoCloseable {
+        @Override
+        public void close() {
+            if (model != null) {
+                model.close();
+            }
+        }
     }
 }

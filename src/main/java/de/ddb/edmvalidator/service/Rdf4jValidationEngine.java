@@ -1,6 +1,8 @@
 package de.ddb.edmvalidator.service;
 
 import de.ddb.edmvalidator.api.ValidationResultItem;
+import lombok.RequiredArgsConstructor;
+import org.eclipse.rdf4j.model.IRI;
 import org.eclipse.rdf4j.model.Model;
 import org.eclipse.rdf4j.model.Resource;
 import org.eclipse.rdf4j.model.Statement;
@@ -15,6 +17,7 @@ import org.eclipse.rdf4j.rio.Rio;
 import org.eclipse.rdf4j.sail.memory.MemoryStore;
 import org.eclipse.rdf4j.sail.shacl.ShaclSail;
 import org.eclipse.rdf4j.sail.shacl.ShaclSailValidationException;
+import org.jspecify.annotations.Nullable;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -28,7 +31,13 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/**
+ * Parses RDF/XML and validates it with RDF4J using a separate in-memory repository
+ * per request. The bundled schema is parsed once into an immutable shared model;
+ * mutable repositories and their compiled SHACL state remain local to each request.
+ */
 @Component
+@RequiredArgsConstructor
 public class Rdf4jValidationEngine {
 
     private static final String SHAPES_RESOURCE_PATH = "schema/edm_ext_shacl_shapes.ttl";
@@ -38,19 +47,19 @@ public class Rdf4jValidationEngine {
     private final ValidationItemFactory itemFactory;
     private final ValidationIssueEnricher issueEnricher;
 
-    private volatile byte[] rdf4jShapesBytes;
-    private volatile byte[] rdf4jClassDefinitionsBytes;
+    private volatile @Nullable Model rdf4jSchema;
 
-    public Rdf4jValidationEngine(ValidationItemFactory itemFactory, ValidationIssueEnricher issueEnricher) {
-        this.itemFactory = itemFactory;
-        this.issueEnricher = issueEnricher;
+    /** Returns a nonempty data model, or a failure result with a {@code null} model. */
+    public Rdf4jParseOutcome parseRdfSyntax(byte[] rdfXmlBytes) {
+        return parseRdfSyntax(rdfXmlBytes, DdbConstants.DDB_RESOURCE_BASE);
     }
 
-    public Rdf4jParseOutcome parseRdfSyntax(byte[] rdfXmlBytes) {
+    /** Uses the same checked local document base as Jena, graph preview and conversion. */
+    public Rdf4jParseOutcome parseRdfSyntax(byte[] rdfXmlBytes, String documentIri) {
         try {
-            org.eclipse.rdf4j.model.Model model = Rio.parse(
+            Model model = Rio.parse(
                     new ByteArrayInputStream(rdfXmlBytes),
-                    DdbConstants.DDB_RESOURCE_BASE,
+                    documentIri,
                     RDFFormat.RDFXML);
 
             if (model.isEmpty()) {
@@ -74,7 +83,12 @@ public class Rdf4jValidationEngine {
         }
     }
 
-    public ValidationResultItem validateShacl(org.eclipse.rdf4j.model.Model dataModel, byte[] rdfXmlBytes) {
+    /**
+     * Validates a parsed graph in an isolated transaction. A missing model reports
+     * a skipped check. Failed transactions are explicitly rolled back after their
+     * lazily evaluated SHACL reports have been materialized.
+     */
+    public ValidationResultItem validateShacl(@Nullable Model dataModel, byte[] rdfXmlBytes) {
         if (dataModel == null) {
             return itemFactory.failure(ValidationSections.SHACL, "RDF4J SHACL", "SHACL wurde übersprungen, weil RDF4J-RDF-Parsing fehlgeschlagen ist.", null, null, rdfXmlBytes);
         }
@@ -84,14 +98,35 @@ public class Rdf4jValidationEngine {
             repository.init();
 
             try (SailRepositoryConnection connection = repository.getConnection()) {
-                connection.begin();
-                connection.add(new ByteArrayInputStream(getRdf4jShapesBytes()), "", RDFFormat.TURTLE, RDF4J.SHACL_SHAPE_GRAPH);
-                connection.add(new ByteArrayInputStream(getRdf4jClassDefinitionsBytes()), "", RDFFormat.TURTLE, RDF4J.SHACL_SHAPE_GRAPH);
-                connection.commit();
+                Exception transactionFailure = null;
+                try {
+                    connection.begin();
+                    connection.add(getRdf4jSchema(), RDF4J.SHACL_SHAPE_GRAPH);
+                    connection.commit();
 
-                connection.begin();
-                connection.add(dataModel);
-                connection.commit();
+                    connection.begin();
+                    connection.add(dataModel);
+                    connection.commit();
+                } catch (Exception ex) {
+                    transactionFailure = ex;
+                    ShaclSailValidationException shaclCause = findShaclValidationException(ex);
+                    if (shaclCause != null) {
+                        // Materialize the report before rolling back its transaction and closing the connection.
+                        shaclCause.validationReportAsModel();
+                    }
+                    throw ex;
+                } finally {
+                    try {
+                        if (connection.isActive()) {
+                            connection.rollback();
+                        }
+                    } catch (RuntimeException rollbackFailure) {
+                        if (transactionFailure == null) {
+                            throw rollbackFailure;
+                        }
+                        transactionFailure.addSuppressed(rollbackFailure);
+                    }
+                }
             }
 
             return itemFactory.success(ValidationSections.SHACL, "RDF4J SHACL", "Keine SHACL-Violations gefunden", 0L, "Violations");
@@ -133,7 +168,8 @@ public class Rdf4jValidationEngine {
         );
     }
 
-    private ShaclSailValidationException findShaclValidationException(Throwable throwable) {
+    /** Searches causes and suppressed failures without revisiting cyclic exception chains. */
+    private @Nullable ShaclSailValidationException findShaclValidationException(@Nullable Throwable throwable) {
         if (throwable == null) {
             return null;
         }
@@ -144,7 +180,7 @@ public class Rdf4jValidationEngine {
 
         while (!queue.isEmpty()) {
             Throwable current = queue.removeFirst();
-            if (current == null || !visited.add(current)) {
+            if (!visited.add(current)) {
                 continue;
             }
 
@@ -152,8 +188,9 @@ public class Rdf4jValidationEngine {
                 return validationException;
             }
 
-            if (current.getCause() != null) {
-                queue.addLast(current.getCause());
+            Throwable cause = current.getCause();
+            if (cause != null) {
+                queue.addLast(cause);
             }
             for (Throwable suppressed : current.getSuppressed()) {
                 if (suppressed != null) {
@@ -164,33 +201,35 @@ public class Rdf4jValidationEngine {
         return null;
     }
 
-    private boolean looksLikeWrappedShaclValidation(Throwable throwable) {
+    private boolean looksLikeWrappedShaclValidation(@Nullable Throwable throwable) {
         String message = throwable == null ? null : throwable.getMessage();
         if (message != null && message.contains("ShaclSailValidationException")) {
             return true;
         }
 
         Throwable root = rootCause(throwable);
-        return root != null
-                && root.getMessage() != null
-                && root.getMessage().contains("ShaclSailValidationException");
+        String rootMessage = root == null ? null : root.getMessage();
+        return rootMessage != null && rootMessage.contains("ShaclSailValidationException");
     }
 
     private String buildWrappedShaclFallbackMessage(Throwable throwable) {
         Throwable root = rootCause(throwable);
-        String rootMessage = root == null || root.getMessage() == null || root.getMessage().isBlank()
+        String detail = root == null ? null : root.getMessage();
+        String rootMessage = detail == null || detail.isBlank()
                 ? "keine zusätzliche Ursache verfügbar"
-                : root.getMessage();
+                : detail;
 
         return "RDF4J meldet SHACL-Validierungsfehler, liefert in diesem Lauf aber keinen auslesbaren Validation-Report. " +
                 "Bitte nutze die detaillierten Violations aus dem Jena-SHACL-Block. Ursache: " + rootMessage;
     }
 
-    private Throwable rootCause(Throwable throwable) {
+    private @Nullable Throwable rootCause(@Nullable Throwable throwable) {
         Throwable current = throwable;
         int guard = 0;
-        while (current != null && current.getCause() != null && current.getCause() != current && guard < 20) {
-            current = current.getCause();
+        Throwable cause = current == null ? null : current.getCause();
+        while (cause != null && cause != current && guard < 20) {
+            current = cause;
+            cause = current.getCause();
             guard++;
         }
         return current;
@@ -238,7 +277,7 @@ public class Rdf4jValidationEngine {
         return sb.toString();
     }
 
-    private String firstObjectValue(Model model, Resource subject, org.eclipse.rdf4j.model.IRI predicate) {
+    private @Nullable String firstObjectValue(Model model, Resource subject, IRI predicate) {
         Value value = model.filter(subject, predicate, null)
                 .objects()
                 .stream()
@@ -247,49 +286,38 @@ public class Rdf4jValidationEngine {
         return value == null ? null : value.stringValue();
     }
 
-    private Integer toInteger(long value) {
+    private @Nullable Integer toInteger(long value) {
         if (value <= 0 || value > Integer.MAX_VALUE) {
             return null;
         }
         return (int) value;
     }
 
-    private byte[] getRdf4jShapesBytes() {
-        byte[] current = rdf4jShapesBytes;
+    /** Shares read-only statements while each request still builds its own isolated repository. */
+    Model getRdf4jSchema() {
+        Model current = rdf4jSchema;
         if (current != null) {
             return current;
         }
 
         synchronized (this) {
-            if (rdf4jShapesBytes == null) {
-                try (InputStream inputStream = new ClassPathResource(SHAPES_RESOURCE_PATH).getInputStream()) {
-                    rdf4jShapesBytes = inputStream.readAllBytes();
+            current = rdf4jSchema;
+            if (current == null) {
+                try (InputStream shapesInput = new ClassPathResource(SHAPES_RESOURCE_PATH).getInputStream();
+                     InputStream classesInput = new ClassPathResource(CLASS_DEFINITIONS_RESOURCE_PATH).getInputStream()) {
+                    Model parsed = Rio.parse(shapesInput, "", RDFFormat.TURTLE);
+                    parsed.addAll(Rio.parse(classesInput, "", RDFFormat.TURTLE));
+                    current = parsed.unmodifiable();
+                    rdf4jSchema = current;
                 } catch (IOException ex) {
                     throw new IllegalStateException("Konnte SHACL-Shapes nicht laden: " + ex.getMessage(), ex);
                 }
             }
-            return rdf4jShapesBytes;
-        }
-    }
-
-    private byte[] getRdf4jClassDefinitionsBytes() {
-        byte[] current = rdf4jClassDefinitionsBytes;
-        if (current != null) {
             return current;
         }
-
-        synchronized (this) {
-            if (rdf4jClassDefinitionsBytes == null) {
-                try (InputStream inputStream = new ClassPathResource(CLASS_DEFINITIONS_RESOURCE_PATH).getInputStream()) {
-                    rdf4jClassDefinitionsBytes = inputStream.readAllBytes();
-                } catch (IOException ex) {
-                    throw new IllegalStateException("Konnte SHACL-Klassendefinitionen nicht laden: " + ex.getMessage(), ex);
-                }
-            }
-            return rdf4jClassDefinitionsBytes;
-        }
     }
 
-    public record Rdf4jParseOutcome(ValidationResultItem result, org.eclipse.rdf4j.model.Model model) {
+    /** Carries the parser result and, only after a successful parse, its data model. */
+    public record Rdf4jParseOutcome(ValidationResultItem result, @Nullable Model model) {
     }
 }

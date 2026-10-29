@@ -1,11 +1,23 @@
-# EDM Validator (DDB)
+# EDM-Werkzeuge (DDBpro)
 
-Validator für EDM/RDF-Daten der Deutschen Digitalen Bibliothek auf Basis von Spring Boot.
+RDF/XML erkunden, validieren, abfragen und konvertieren: Werkzeuge für EDM-Daten
+der Deutschen Digitalen Bibliothek auf Basis von Spring Boot.
 
 ## Voraussetzungen
 
 - Java 25
 - Maven 3.9+
+
+Lombok erzeugt die reinen Injection-Konstruktoren und Logger. Seine Version wird
+von Spring Boot verwaltet; der Annotation Processor ist für Java 25 ausdrücklich
+im Maven-Compiler konfiguriert. Lombok wird nicht in das ausführbare JAR gepackt.
+Siehe [Lombok mit Maven](https://projectlombok.org/setup/maven).
+
+Die Java-API verwendet [JSpecify](https://jspecify.dev/docs/user-guide/) für ihre
+Nullverträge: `@Nullable` kennzeichnet optionale Eingaben, Fehlerdetails und
+Parsermodelle. DTOs mit `@NullMarked` enthalten sonst erforderliche Werte.
+An ausgewählten Bibliotheksgrenzen sichern explizite Prüfungen die Verträge auch zur Laufzeit ab;
+die Nullanalyse der IDE bleibt aktiviert.
 
 ## Starten
 
@@ -21,12 +33,53 @@ target/edm-validator.jar
 
 Danach im Browser oeffnen:
 
-- http://localhost:8080/app/edm-validator
-- RDF-Konverter: http://localhost:8080/app/edm-validator/converter.html
+- Explorer: http://localhost:8080/app/edm-validator/explorer.html
+- Validierung: http://localhost:8080/app/edm-validator
+- Query: http://localhost:8080/app/edm-validator/query.html
+- Konverter: http://localhost:8080/app/edm-validator/converter.html
 
-Validierung und RDF-Konverter sind eigenständige Seiten mit einem gemeinsamen
-Menü. Beide nutzen die gesamte verfügbare Bildschirmbreite. Die Menülinks und
+Alle vier Werkzeuge sind eigenständige Seiten mit einem gemeinsamen
+Menü. Sie nutzen die gesamte verfügbare Bildschirmbreite. Die Menülinks und
 API-Aufrufe funktionieren auch unter einem anders konfigurierten Basispfad.
+Die Seitentitel nennen Werkzeug, Anwendung und DDBpro. Die Navbar verwendet das
+originale DDBpro-Logo; auf kleinen Bildschirmen erscheint dessen DDB-Signet.
+Beide SVG-Dateien werden unverändert lokal unter `static/images/` ausgeliefert.
+
+Beim Start auf die Meldung `Started EdmValidatorApplication` warten und das
+Terminal mit `mvn spring-boot:run` geöffnet lassen. `ERR_CONNECTION_REFUSED` bei
+`/api/source` bedeutet, dass der Browser die lokale Anwendung nicht erreicht;
+die Anfrage ist dann noch nicht bei der DDB-API angekommen.
+
+### Gemeinsame RDF-Eingabe
+
+Jede Seite beginnt mit Überschrift und Kurzbeschreibung. Darunter liegt dieselbe
+RDF/XML-Eingabe als Bootstrap-Akkordeon: ohne Daten geöffnet, mit vorhandenen oder
+neu geladenen Daten geschlossen. Zum Bearbeiten lässt es sich jederzeit öffnen;
+während des Tippens bleibt es offen. RDF/XML kann direkt eingefügt,
+als Datei geöffnet oder mit **Laden** aus einer DDB-URI abgerufen werden.
+Der Abruf befüllt die Textarea; danach verwenden alle Werkzeuge genau diesen
+bearbeitbaren Inhalt. Eine Validierung ist weder für den Explorer noch für
+Abfragen oder Konvertierungen erforderlich.
+
+Die Eingabe und ihre bekannte Dokument-IRI werden unter `ddb-rdf-source-v1` im
+lokalen Browserspeicher gespeichert und beim Seitenwechsel oder Neuladen
+wiederhergestellt. Geöffnete Tabs derselben Anwendung übernehmen Änderungen.
+Beim Tippen werden Schreibvorgänge für 250 ms gebündelt; Navigation, Ausblenden
+oder Verlassen der Seite sichern den aktuellen Stand sofort. Laden und Leeren
+werden unmittelbar gespeichert. Reine URI-/Profiländerungen in einem anderen
+Tab überschreiben keinen noch ungespeicherten Textentwurf.
+**Eingabe leeren** leert die gemeinsame Quelle für alle Werkzeuge. Bei gesperrtem
+oder vollem Browserspeicher erscheint ein Hinweis; das aktuelle Werkzeug bleibt
+nutzbar. Alte getrennte Eingaben werden beim ersten Start übernommen.
+
+Eine DDB-URI wird erst durch den Ladebutton oder Enter abgerufen. Das Tippen einer
+anderen URI verändert das vorhandene RDF/XML nicht. Ein fehlgeschlagener Abruf
+oder Upload erhält den bisherigen Text. Änderungen während einer Anfrage
+verhindern, dass verspätete Antworten den neuen Stand überschreiben.
+
+Dateien und DDB-Abrufe sind auf 1 MiB begrenzt. XML-Kodierungsdeklarationen sowie
+UTF-8-/UTF-16-Markierungen werden beim Dateiimport berücksichtigt. Die bekannte
+Dokument-IRI dient allen Werkzeugen als Basis für relative RDF-IRIs.
 
 Der Basispfad ist per Environment-Variable konfigurierbar:
 
@@ -89,6 +142,33 @@ Die Validierung ist in drei Abschnitte aufgeteilt:
 
 Jeder Engine-Lauf liefert ein separates Ergebnisobjekt mit Originalmeldung, optionaler Erklaerung, Zeile/Spalte, Snippet und optionalen Metriken.
 
+Die Oberfläche zeigt die vier Prüfschritte kompakt an. **Prüfdetails** bleiben bei
+erfolgreichen Prüfungen eingeklappt und öffnen sich bei einem Fehler automatisch.
+
+Das externe EDM-XSD einschließlich seiner Imports und Includes wird bereits beim
+Anwendungsstart geladen. Das kompilierte Schema bleibt bis zum Ende des
+Anwendungsprozesses im Speicher; jede Dokumentprüfung erhält einen eigenen
+Validator. Nach erfolgreichem Laden benötigt die XSD-Prüfung keinen Netzzugriff.
+Die SHACL-Schemas liegen bereits lokal im Klassenpfad.
+RDF4J hält außerdem ihr geparstes, unveränderliches Modell im Speicher, statt
+dieselben Turtle-Dateien pro Anfrage erneut einzulesen. Jede Prüfung erhält
+weiterhin ein eigenes Repository. Jena-Modelle werden nach der Verarbeitung
+auch auf Fehlerpfaden freigegeben.
+
+Für das externe Schema gelten 5 Sekunden Verbindungszeitlimit, 10 Sekunden pro
+Abruf und ein gemeinsames Ladebudget von 30 Sekunden für Hauptschema und
+Abhängigkeiten. Scheitert das Laden, startet die Anwendung trotzdem und protokolliert
+die Ursache. Die XSD-Prüfung meldet dann die fehlende Schema-Verfügbarkeit; die
+übrigen Prüfungen laufen weiter. Frühestens nach 30 Sekunden stößt eine neue
+Validierungsanfrage einen weiteren Ladeversuch an. Ein erfolgreich geladenes
+Schema wird während der Laufzeit nicht erneut heruntergeladen.
+
+Das Serverlog enthält pro Validierung eine Kennung sowie Gesamtdauer und
+Laufzeiten der einzelnen Prüfschritte. Schritte ab 10 Sekunden werden zusätzlich
+als Warnung protokolliert. Für Beginn und Ende jedes Schritts kann
+`logging.level.de.ddb.edmvalidator.service.DdbEdmValidationService=DEBUG` gesetzt
+werden. RDF/XML-Inhalte werden dabei nicht ins Log geschrieben.
+
 ## DDB URL- und Base-Konfiguration
 
 Zentrale Konstanten liegen in [src/main/java/de/ddb/edmvalidator/service/DdbConstants.java](src/main/java/de/ddb/edmvalidator/service/DdbConstants.java):
@@ -121,24 +201,97 @@ Hinweis: Beide Dateien werden fuer die SHACL-Auswertung geladen, damit Klassenbe
 	- RDF/XML-Inhalt (bei erfolgreichem Download)
 	- Detailliste pro Engine
 
-## RDF-Konverter
+## Interaktive Graphansicht
 
-Die Seite **RDF-Konverter** ist über das Menü der Anwendung erreichbar. RDF/XML kann
-direkt eingefügt, als `.rdf`, `.xml` oder `.owl` hochgeladen oder aus der bereits
-angezeigten Dokumentansicht übernommen werden. Die Eingabe wird als RDF/XML
+Der eigenständige **Explorer** öffnet eine gespeicherte Eingabe direkt als
+Graph. Nach einer Änderung erstellt **Graph anzeigen** die Ansicht neu, ohne die
+Validierungsengines zu starten. Der Explorer verwendet Bootstrap-Cards, Buttons, Formulare und Badges mit den
+DDB-Farben und der lokal bereitgestellten Inter-Schrift. Die Schriftlizenz liegt
+unter `src/main/resources/static/fonts/OFL-Inter.txt`; Code-Editoren behalten ihre
+bisherige Monospace-Schrift. Die helle Graphfläche zeigt Ressourcenbeziehungen
+mit kräftigen Linien und Richtungspfeilen. Die Palette folgt den Primär- und
+Sekundärfarben des DDB-Styleguides. Für die Datenkategorien werden kräftige
+Rot- und Blautöne sowie dunkle Grautöne verwendet; die Bedienelemente bleiben
+im DDB-Rot. Die ebenfalls im Guide genannten Blautöne ergänzen hier die
+Graphpalette, während Farben und Formen gemeinsam den Knotentyp zeigen.
+Die Knotentypen unterscheiden sich zusätzlich durch ihre Form:
+
+| Typ | Form | Farbe |
+| --- | --- | --- |
+| Kulturobjekt | Würfel | DDB-Dunkelrot `#A5003B` |
+| Ressource | Kugel | Dunkelblau `#2D4694` |
+| RDF-Klasse | Oktaeder / Raute | Dunkelgrau `#383838` |
+| Ort | Ring | DDB-Hellrot `#EC0A3C` |
+| Akteur | Dodekaeder | Mittelblau `#0096CC` |
+| Literalwert | Kleine Kugel | Grau `#727579` |
+
+Innerhalb eines Knotentyps wächst die Größe mit der Anzahl seiner Verbindungen
+im geladenen Graphen. Die logarithmische, begrenzte Skalierung macht stark
+vernetzte Knoten erkennbar und erhält die Lesbarkeit weniger vernetzter Knoten.
+Unbeleuchtete Materialien erhalten die Farben unabhängig von Licht und Drehung.
+
+- **Vollbild** erweitert den gesamten Explorer einschließlich Suche und
+  Knoten-Details. Ohne verfügbare Fullscreen-API wird eine bildschirmfüllende
+  Ansicht verwendet. Escape oder **Vollbild beenden** stellt die Seite wieder her.
+- Die Ansicht startet für jedes Dokument mit dem gesamten geladenen Graphen,
+  ohne vorausgewählten Knoten. **Gesamtansicht** hebt einen späteren Fokus auf
+  und passt die Kamera erneut an alle Knoten an.
+- Die **Suche** findet Knoten nach Bezeichnung, IRI oder Klasse.
+  Ein Klick hebt den Knoten hervor und zeigt die Beziehungen im Detailbereich.
+  Die Zoomstufe und Kameraposition bleiben bei jeder Knotenauswahl unverändert,
+  auch bei Suchtreffern und beim Folgen einer Verbindung.
+- Beim Überfahren oder Auswählen eines Knotens wird seine Nachbarschaft
+  hervorgehoben. Tooltips nennen Bezeichnung, Klassen und IRI.
+- **Beschriftungen** ist der einzige Darstellungsschalter und startet
+  ausgeschaltet. Eingeschaltet werden wenige, kollisionsgeprüfte Labels gezeigt;
+  sie fangen keine Klicks ab. Details bleiben im Seitenbereich lesbar.
+- Die Darstellung verwendet feste, ruhige Vorgaben ohne Filter- oder
+  Animationskonfiguration und ohne automatische Kamerafahrten.
+
+Selten benötigte Funktionen bleiben verfügbar, ohne den normalen Ablauf zu
+überladen: Das Europeana-Profil liegt bei der gemeinsamen Eingabe unter
+**Option für den DDB-Abruf**. Im Konverter bleiben die erweiterten Einstellungen
+standardmäßig eingeklappt.
+
+Die Vorschau enthält weiterhin höchstens 1.200 RDF-Aussagen. Knoten-Details
+beziehen sich auf diesen Ausschnitt. Typzuweisungen und Ressourcenbeziehungen
+werden vor Literalwerten berücksichtigt, damit die Struktur bei großen
+Dokumenten erhalten bleibt. Gleichlautende Literale bleiben nach Sprache und Datentyp getrennte
+Knoten; ihre Beschriftung zeigt den vollständigen Text. Die Auswahl hält nur
+begrenzte Kandidatenlisten vor, statt den gesamten Graphen zu sortieren.
+Die Oberfläche führt RDF-Texte nicht als
+HTML aus. Darstellung und Interaktion liegen in `graph.js` und `graph.css`,
+die Symbolformen in `graph-nodes.js`. Die Anfangssimulation wird vor der Anzeige
+vorbereitet; `graph-fit.js` berechnet die Perspektive aus allen Knotenpositionen
+einschließlich der gesamten Formradien und des sichtbaren Bildrands.
+Die Bibliothek `3d-force-graph` ist auf Version `1.80.0` festgelegt und liegt mit
+dem passenden Three.js-Kern `0.183.2` lokal unter `static/vendor/`, einschließlich
+der Lizenzen. Beide Bibliotheken werden nur für eine geladene Graphansicht benötigt.
+
+## Query
+
+Die eigene Seite **Query** führt XPath und SPARQL unmittelbar auf der
+gemeinsamen RDF/XML-Eingabe aus. XPath verwendet den XML-Parser des Browsers und
+die im Dokument deklarierten Namensraumpräfixe. SPARQL lädt rdflib erst bei der
+ersten Abfrage aus `static/vendor/rdflib-2.4.0.min.js` und berücksichtigt die bekannte
+Dokument-IRI als Basis. Auch diese Bibliothek benötigt keinen externen CDN-Abruf.
+Parser- und Abfragefehler werden direkt beim Ergebnis angezeigt; eine vorherige
+serverseitige Validierung wird nicht vorausgesetzt. Bei Änderungen an der Quelle
+werden alte Ergebnisse verworfen.
+Wiederholte Abfragen auf unverändertem XML verwenden denselben geparsten Baum.
+Auf breiten Bildschirmen stehen Abfrage und Ergebnis nebeneinander, auf kleinen
+Bildschirmen untereinander. Die Tabs benennen die jeweilige Abfragesprache.
+
+## Konverter
+
+Die Seite **Konverter** ist über das Menü der Anwendung erreichbar und nutzt
+die gemeinsame Eingabe. Die Eingabe wird als RDF/XML
 geparst; eine passende Dateiendung allein reicht nicht aus. Die Grenze beträgt
 1 MiB pro Eingabe und entspricht dem bisherigen Spring-Boot-Uploadstandard.
 
-**Im RDF-Konverter öffnen** überträgt das angezeigte Dokument samt bekannter
-Dokument-IRI einmalig über den Sitzungsspeicher des Browsers auf die Konverterseite.
-Der Übergabeeintrag wird dort sofort entfernt; XML-Inhalt steht nicht in der URL.
-
-Der Konverter merkt sich die letzte RDF/XML-Eingabe samt Basis- und Dokument-IRI
-im lokalen Browserspeicher. Sie steht nach Neuladen oder einem Wechsel zwischen
-den Seiten wieder bereit. Das gilt für eingefügten Text, geladene Dateien und
-übernommene Validierungsdaten. Eine neue Übergabe aus der Validierung hat Vorrang.
-**Zurücksetzen** löscht die gespeicherte Konverter-Eingabe und stellt die
-Standardwerte wieder her. Die gespeicherte Eingabe der Validierung bleibt separat.
+**Einstellungen zurücksetzen** stellt die Konvertierung auf ihre Standardwerte
+zurück und erhält das gemeinsame RDF/XML. Der Inhalt wird ausschließlich über
+**Eingabe leeren** entfernt. XML-Inhalt wird nicht in Menülinks oder URLs abgelegt.
 
 Bei relativen Ressourcen-IRIs ist eine absolute Basis erforderlich: aus
 `xml:base`, der bekannten ursprünglichen Dokument-IRI oder dem Feld **Basis-IRI**.
@@ -146,8 +299,8 @@ Lokale Dateinamen und temporäre Serverpfade werden nicht als Basis verwendet.
 
 Die Oberfläche erzeugt genau **eine Ergebnisdatei**: entweder XML (RDF/XML) oder
 JSON (JSON-LD). Standard ist JSON-LD in kompakter Form mit automatisch erzeugtem
-Kontext. Eingabe und Ergebnis stehen auf großen Bildschirmen nebeneinander; auf
-kleinen Bildschirmen untereinander.
+Kontext. Unter der gemeinsamen Eingabe stehen Einstellungen und Ergebnis auf
+großen Bildschirmen nebeneinander; auf kleinen Bildschirmen untereinander.
 
 Unter **Weitere Einstellungen** werden zwei unabhängige JSON-LD-Eigenschaften
 gewählt: **Darstellung** (kompakt oder expandiert) und **Struktur** (Standardgraph,
@@ -211,21 +364,23 @@ Es werden keine zusätzlichen Laufzeitbibliotheken eingebunden. Titanium und JSO
 stammen aus der vorhandenen Jena-Abhängigkeit; Upload-Optionen werden mit dem
 bereits von Spring Boot konfigurierten Jackson-Mapper eingelesen.
 
-Kontext, Basis-IRI und Frame-Konfiguration bleiben zunächst eingeklappt. Bei einem
+Basis-IRI und Frame-Konfiguration bleiben zunächst eingeklappt. Bei einem
 Fehler wird der betroffene Bereich automatisch geöffnet und das Feld fokussiert.
-Allgemeine Status- und Fehlermeldungen stehen gesammelt unter der Navbar als
+Allgemeine Status- und Fehlermeldungen stehen gesammelt unter der gemeinsamen Eingabe als
 schließbare Bootstrap-Alerts. Feldfehler bleiben zusätzlich am jeweiligen Editor
 oder Eingabefeld sichtbar. Statische Hilfetexte werden nicht als Alerts dargestellt.
-Der automatische Kontext übernimmt die Namespace-IRIs des Modells unverändert.
-Alternativ akzeptiert der Kontexteditor ein JSON-Objekt mit oberstem `@context`.
+Die Oberfläche erzeugt den Kontext immer aus den Namespace-IRIs des Modells.
+Eine Kontext-Konfiguration oder zusätzliche Kontextvorschau ist nicht erforderlich;
+bei kompakten Ausgaben steht der Kontext im Ergebnisdokument.
 Die expandierte Ausgabe enthält keinen Kontext. Für ein Frame kann ein Kontext
-trotzdem zur Interpretation der Regeln nötig sein. Externe
+trotzdem zur Interpretation der Regeln nötig sein; dieser wird ebenfalls automatisch
+eingesetzt. Ein eigener Root-Kontext im Frame wird dabei ersetzt, verschachtelte
+Kontexte werden mit einem verständlichen Frame-Fehler abgelehnt. Externe
 Kontexte und XML-DTDs/Entitäten werden nicht nachgeladen.
 
 Das Frame lässt sich über Wurzel-IRI und allgemeine Einbettungsregel konfigurieren
 oder als eigenes JSON bearbeiten. Regeln für einzelne
-Beziehungen werden ausschließlich im eigenen Frame angegeben. Ein eigener
-Frame-Kontext hat Vorrang. Die Vorschau zeigt das wirksame Frame. Framing erzeugt
+Beziehungen werden ausschließlich im eigenen Frame angegeben. Framing erzeugt
 eine ausgewählte Ansicht und darf deshalb einen Teil des Eingabegraphen auslassen.
 Zyklische Beziehungen bleiben bei Bedarf Referenzen; Ressourcen-IRIs bleiben erhalten.
 
@@ -236,27 +391,50 @@ markiert; ein veralteter Kopieraufruf wird nicht verwendet.
 Die Dateien enthalten UTF-8 mit `application/rdf+xml` bzw. `application/ld+json`.
 Änderungen an Eingabe oder Einstellungen entfernen alte Ergebnisse.
 
-Im normalen Ablauf wird nur das ausgewählte Ergebnis berechnet. Modellvorschauen
-werden erst bei geöffneten JSON-Einstellungen nachgeladen und bis zur nächsten
-Änderung an Quelle oder Basis wiederverwendet. Änderungen an Kontext- oder
-Frame-Optionen lösen kein erneutes Einlesen für die Vorschau aus. Die
-Syntaxhervorhebung beim Tippen wird gebündelt; sehr große Dokumente werden für
-flüssiges Bearbeiten als Klartext angezeigt.
+Im normalen Ablauf wird nur das ausgewählte Ergebnis berechnet. Ressourcen für
+die Frame-Auswahl werden erst bei geöffneten Framing-Einstellungen nachgeladen
+und bis zur nächsten Änderung an Quelle oder Basis wiederverwendet.
+Die Syntaxhervorhebung des optionalen Frame-Editors wird beim Tippen gebündelt;
+sehr große Entwürfe werden für flüssiges Bearbeiten als Klartext angezeigt.
 Vorschau-Anfragen enthalten nur XML, Basis-IRI und Dokument-IRI; XML-Ausgaben
-übertragen keine ausgeblendeten JSON-LD-Optionen. Kontext- und Frame-Entwürfe
-werden nur für die jeweils gewählten Verfahren übertragen.
-Beim Bearbeiten ist der Text dunkel und direkt in der Textarea lesbar. Ohne Fokus
-zeigt der vorbereitete Editor die Syntaxhervorhebung. Auch bei ausgefallenem
-JavaScript oder nicht verfügbarer Syntaxbibliothek bleibt die Eingabe lesbar.
-Alle XML-/JSON-Eingaben und Quelltextansichten beider Seiten verwenden dieselbe
+übertragen keine ausgeblendeten JSON-LD-Optionen. Ein Frame-Entwurf wird nur beim
+gewählten Framing-Verfahren übertragen.
+Die gemeinsame RDF/XML-Textarea bleibt durchgehend ein normaler, lesbarer
+Bootstrap-Editor und erhält eine XML-Syntaxhervorhebung auch während des Tippens.
+Ein rein visueller Spiegel übernimmt Farben; Cursor, Auswahl, Rückgängig und
+Zwischenablage verwenden weiterhin das native Textfeld. Bei fehlender
+Hervorhebung, hohem Kontrastmodus oder mehr als 200.000 Zeichen bleibt der Text
+als Klartext bearbeitbar. Die Hervorhebung wird gebündelt aktualisiert und
+beeinflusst weder den Inhalt noch die gemeinsame Speicherung.
+Der Frame-Editor zeigt ohne Fokus eine vorbereitete
+Syntaxhervorhebung; beim Bearbeiten ist sein Text dunkel und direkt lesbar. Ist die
+Syntaxbibliothek nicht verfügbar, bleibt er als Klartext nutzbar.
+Alle XML-/JSON-Eingaben und Quelltextansichten der vier Seiten verwenden dieselbe
 Monospace-Schrift aus Bootstrap mit `0.75rem` (standardmäßig 12 px), Zeilenhöhe
 `1.4` und Tabulatorbreite 4. Die gemeinsame Definition liegt in `source.css`;
-zusätzliche Schriftdateien werden nicht geladen.
-Die 3D-Bibliothek der Validierungsansicht wird erst geladen, wenn ein Graph
+für die Codeansichten werden keine zusätzlichen Schriftdateien geladen.
+Code-Ausgaben des Konverters, XML-Treffer in Query und technische Prüfmeldungen
+erhalten Zeilennummern. Die Nummern sind dekorativ und werden weder mitkopiert
+noch heruntergeladen oder von Screenreadern vorgelesen. Der Ausgabeinhalt bleibt
+einschließlich Leerzeilen, Zeilenenden und Sonderzeichen unverändert. Bei sehr
+langen Ausgaben werden nur die gerade sichtbaren Zeilennummern aufgebaut.
+
+Prism `1.29.0` wird mit XML- und JSON-Grammatik lokal unter `static/vendor/`
+ausgeliefert; die MIT-Lizenz liegt daneben in `PRISM-LICENSE.txt`.
+Die Integration verwendet die öffentlichen
+[Prism-APIs](https://prismjs.com/extending.html#api).
+`code-view.js` und `code-view.css` übernehmen die nummerierten Ausgaben,
+`rdf-source.js` und `source.css` den gemeinsamen Editor und die Tokenfarben.
+Die 3D-Bibliothek der Explorerseite wird erst geladen, wenn ein Graph
 angezeigt werden soll; für die Konvertierung wird sie nicht benötigt.
 
 Zusätzliche API-Endpunkte (jeweils relativ zum konfigurierten Basispfad):
 
+- `POST /api/source`: JSON mit `ddbUri` und optionalem `europeanaProfile` lädt
+  RDF/XML von der DDB. Die Antwort enthält `ddbUri`, `apiUrl`, `rdfXml`, `error`.
+  Falsche DDB-URLs werden vor einem HTTP-Abruf abgelehnt; der Abruf liest höchstens 1 MiB.
+- `POST /api/graph`: JSON mit `rdfXml` und optionalem `documentIri` erstellt
+  die Vorschau mit `graphNodes`, `graphLinks`, `error`, ohne Validierung oder Download.
 - `POST /api/convert`: JSON mit `rdfXml` und Konvertierungseinstellungen.
 - `POST /api/convert/inspect`: dieselbe Eingabe für Präfixkontext, Ressourcen und
   Frame-Vorschau, ohne Ergebnisdateien zu erzeugen.
@@ -273,6 +451,9 @@ der API-Antwortumschlag ist keine herunterzuladende RDF-Datei.
 Die API unterstützt weiterhin mehrere unabhängige Ausgaben pro Anfrage und
 stellt dann mit der Java-Standardbibliothek ein ZIP bereit. Ein fehlerhafter
 Kontext oder ein fehlerhaftes Frame verhindert dort nur die abhängigen Ausgaben.
+Die Oberfläche verwendet `contextMode: "generated"`, damit auch eigene Frames
+den Kontext aus den aktuellen Quelldaten verwenden. Die bisherigen API-Modi
+`auto` und `custom` bleiben für vorhandene API-Clients unverändert verfügbar.
 Die API-Eigenschaft `representation` (`compacted` oder `expanded`)
 steuert die Darstellung für Flattening und Framing. Eine zweite Einstellung
 für die Kontextdarstellung beim Flattening wird nicht benötigt. Beim expandierten
@@ -298,8 +479,38 @@ npm install --no-save --package-lock=false --prefix target/ui-check jsdom@26.1.0
 node --test src/test/js/*.test.cjs
 ```
 
-Diese DOM-Tests prüfen unter anderem die exklusive Formatauswahl, identische
+Diese DOM-Tests prüfen unter anderem die gemeinsamen Eingaben und Seitenwechsel,
+unabhängige Graph-/Query-Aufrufe, die exklusive Formatauswahl, identische
 Inhalte in Vorschau, Zwischenablage und Download, die Upload-Kodierung,
 Frame-Entwürfe, bedarfsgerechte Vorschau-Anfragen und den Schutz vor veralteten
 Antworten. Eine visuelle Browserprüfung ersetzen sie nicht.
+
+## Laufzeit und Performance
+
+Die Abhängigkeiten beschränken sich auf die verwendeten Jena-SHACL-/ARQ-Funktionen;
+ungenutzte Datenbank-, Ontologie- und ShEx-Module werden nicht mit ausgeliefert.
+Beispiel-RDF liegt unter `src/test/resources/examples/` und wird dort durch einen
+lokalen API-Integrationstest geprüft. Es gehört nicht zum Laufzeitpaket.
+
+Textressourcen und große JSON-/RDF-Antworten werden ab 2 KiB komprimiert, wenn der
+Client dies unterstützt. Die Einstellungen stehen unter `server.compression.*`.
+Der Docker-Einstieg startet Java mit `exec`, damit Beendigungssignale unmittelbar
+ankommen.
+
+Lokale Vergleichsmessungen vom 29.10.2026 (kurze isolierte Messreihen, kein Lasttest):
+
+| Arbeitsschritt | Vorher | Nachher |
+| --- | --- | --- |
+| Ausführbares JAR, trotz zusätzlicher lokaler Browser-Bibliotheken | 56,8 MB | 53,3 MB |
+| Laufzeitbibliotheken im JAR | 129 | 113 |
+| Graphvorschau, 100.000 gemischte Tripel, Median | 24,8 ms | 15,8 ms |
+| Allokationen derselben Graphvorschau | 24,9 MiB | 11,3 MiB |
+| RDF4J-SHACL, unverändertes Schema, Median | 70,9 ms | 65,1 ms |
+| 100 Texteingaben mit etwa 200 kB XML | 100 Speichervorgänge | 1 Speichervorgang |
+| 20 XPath-Abfragen auf gleichem XML | 20 XML-Parses | 1 XML-Parse |
+| Übertragung des unveränderten Three.js-Kerns mit gzip | 382.617 Bytes | 100.758 Bytes |
+
+Die Servermessungen verwendeten dieselben vorbereiteten Graphen, Aufwärmläufe
+und mehrere Wiederholungen. Frontend-Zählungen stammen aus DOM-Regressionstests;
+sie sind keine Messung der sichtbaren Reaktionszeit eines Browsers.
 

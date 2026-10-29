@@ -11,6 +11,8 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.riot.Lang;
 import org.apache.jena.riot.RDFDataMgr;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.w3c.dom.Element;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -28,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static java.util.Objects.requireNonNull;
 
 class RdfConversionServiceTest {
     private static final String ORGANISATION = "https://example.org/organisation";
@@ -43,6 +46,24 @@ class RdfConversionServiceTest {
             }}
             """;
     private final RdfConversionService service = new RdfConversionService();
+
+    @Test
+    void resourceMetadataIsSortedDistinctAndContainsOnlyNamedSubjectsAndObjects() {
+        Options options = new Options("""
+                <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="https://example.org/vocabulary/">
+                  <rdf:Description rdf:about="https://example.org/z">
+                    <ex:link rdf:resource="https://example.org/a"/><ex:link rdf:nodeID="blank"/><ex:label>text</ex:label>
+                  </rdf:Description>
+                  <rdf:Description rdf:about="https://example.org/a"><ex:link rdf:resource="https://example.org/z"/></rdf:Description>
+                  <rdf:Description rdf:nodeID="blank"><ex:link rdf:resource="https://example.org/a"/></rdf:Description>
+                </rdf:RDF>
+                """);
+
+        ConversionResponse response = service.inspect(options.request());
+
+        assertTrue(response.errors().isEmpty(), () -> response.errors().toString());
+        assertEquals(List.of("https://example.org/a", "https://example.org/z"), response.resources());
+    }
 
     @Test
     void allXmlRepresentationsAndStructuresAreIndentedAndPreserveTheCompleteGraphAndLiteralWhitespace() throws Exception {
@@ -74,20 +95,20 @@ class RdfConversionServiceTest {
                 options.jsonLdOutput = false;
                 options.xmlRepresentation = representation;
                 options.xmlStructure = structure;
-                ConversionResponse response = assertTimeoutPreemptively(Duration.ofSeconds(10), () -> service.convert(options.request()));
+                ConversionResponse response = assertTimeoutPreemptively(requireNonNull(Duration.ofSeconds(10)), () -> service.convert(options.request()));
                 assertTrue(response.errors().isEmpty(), response.errors().toString());
                 ConversionResult result = successful(response, "rdfxml");
                 assertEquals("converted.rdf", result.fileName());
                 assertEquals("application/rdf+xml", result.mediaType());
-                assertEquals(result.content().getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
-                Model output = read(result.content(), Lang.RDFXML);
+                assertEquals(content(result).getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
+                Model output = read(content(result), Lang.RDFXML);
                 assertTrue(input.isIsomorphicWith(output), representation + " / " + structure);
-                assertTrue(result.content().lines().anyMatch(line -> line.startsWith("  <")), "Every XML output is indented");
+                assertTrue(content(result).lines().anyMatch(line -> line.startsWith("  <")), "Every XML output is indented");
                 for (String property : List.of("raw", "xml")) {
                     assertEquals(input.getProperty(input.createResource("https://example.org/whitespace"), input.createProperty(EX + property)).getLiteral().getLexicalForm(),
                             output.getProperty(output.createResource("https://example.org/whitespace"), output.createProperty(EX + property)).getLiteral().getLexicalForm(), property);
                 }
-                var document = xmlDocument(result.content());
+                var document = xmlDocument(content(result));
                 assertEquals(representation.equals("typed") ? 2 : 0,
                         document.getElementsByTagNameNS("http://schema.org/", "Organization").getLength());
                 assertEquals(representation.equals("typed") ? 2 : 0,
@@ -149,7 +170,7 @@ class RdfConversionServiceTest {
         options.jsonLdOutput = false;
         options.xmlRepresentation = "typed";
         options.xmlStructure = "flat";
-        String output = successful(service.convert(options.request()), "rdfxml").content();
+        String output = content(successful(service.convert(options.request()), "rdfxml"));
         assertTrue(read(xml, Lang.RDFXML).isIsomorphicWith(read(output, Lang.RDFXML)), output);
         var document = xmlDocument(output);
         assertEquals(1, document.getElementsByTagNameNS("https://example.net/types/", "Alpha").getLength(), "A deterministic valid type becomes the node name");
@@ -166,10 +187,10 @@ class RdfConversionServiceTest {
     void xmlIsAlwaysIndentedAndOmittedOptionsUseTheDdbDefaults() throws Exception {
         Options options = new Options(fixture());
         options.jsonLdOutput = false;
-        String defaultXml = successful(service.convert(options.request()), "rdfxml").content();
+        String defaultXml = content(successful(service.convert(options.request()), "rdfxml"));
         options.xmlRepresentation = "explicit";
         options.xmlStructure = "flat";
-        String indented = successful(service.convert(options.request()), "rdfxml").content();
+        String indented = content(successful(service.convert(options.request()), "rdfxml"));
         var defaults = xmlDocument(defaultXml);
         assertEquals(2, defaults.getElementsByTagNameNS("http://schema.org/", "Organization").getLength(),
                 "Omitted representation uses typed elements");
@@ -222,7 +243,7 @@ class RdfConversionServiceTest {
                 }
                 assertTrue(failure.error().contains("abgeleitet"), "The namespace must be identified as derived, not as a graph IRI");
                 ConversionResult json = successful(response, "compacted");
-                assertTrue(read(xml, Lang.RDFXML).isIsomorphicWith(read(json.content(), Lang.JSONLD11)),
+                assertTrue(read(xml, Lang.RDFXML).isIsomorphicWith(read(content(json), Lang.JSONLD11)),
                         "Diagnostic reporting must not alter or suppress an independent JSON-LD output");
                 assertEquals("http://example.test", jsonObject(response.autoContext()).getJsonObject("@context")
                         .getJsonObject("bad").getString("@id"));
@@ -246,17 +267,17 @@ class RdfConversionServiceTest {
                 options.embed = "@once";
                 options.contextMode = "custom";
                 options.context = CONTEXT;
-                ConversionResponse response = assertTimeoutPreemptively(Duration.ofSeconds(20),
+                ConversionResponse response = assertTimeoutPreemptively(requireNonNull(Duration.ofSeconds(20)),
                         () -> service.convert(options.request()));
                 assertTrue(response.errors().isEmpty(), () -> response.errors().toString());
                 assertEquals(1, response.results().size());
                 ConversionResult result = successful(response, method);
-                assertTrue(result.content().lines().anyMatch(line -> line.startsWith(" ")), "Every JSON-LD output is formatted");
+                assertTrue(content(result).lines().anyMatch(line -> line.startsWith(" ")), "Every JSON-LD output is formatted");
                 assertEquals(structure.equals("standard") ? representation + ".jsonld"
                         : structure + "-" + representation + ".jsonld", result.fileName());
-                JsonValue document = jsonValue(result.content());
+                JsonValue document = jsonValue(content(result));
                 assertEquals(representation.equals("compacted"), hasKey(document, "@context"));
-                Model output = read(result.content(), Lang.JSONLD11);
+                Model output = read(content(result), Lang.JSONLD11);
                 if (!structure.equals("framed")) {
                     assertTrue(input.isIsomorphicWith(output), structure + " / " + representation);
                     if (structure.equals("flattened")) {
@@ -311,9 +332,10 @@ class RdfConversionServiceTest {
         ConversionResponse framed = service.convert(options.request());
         assertTrue(framed.errors().isEmpty(), () -> framed.errors().toString());
         ConversionResult result = successful(framed, "framed");
-        JsonValue document = jsonValue(result.content());
+        JsonValue document = jsonValue(content(result));
         assertFalse(hasKey(document, "@context"));
         JsonObject root = findById(document, PART_ROOT);
+        assertNotNull(root);
         JsonObject part = root.getJsonArray(EX + "hasPart").getJsonObject(0);
         assertEquals(PART, part.getString("@id"));
         assertTrue(part.containsKey(EX + "label"));
@@ -342,25 +364,25 @@ class RdfConversionServiceTest {
         ConversionResponse response = service.convert(options.request());
         assertTrue(response.errors().isEmpty(), () -> response.errors().toString());
         assertEquals(5, response.results().size());
-        Map<String, ConversionResult> results = byId(response);
+        Map<@NonNull String, ConversionResult> results = byId(response);
         assertEquals(Map.of("rdfxml", "converted.rdf", "expanded", "expanded.jsonld",
                 "compacted", "compacted.jsonld", "flattened", "flattened.jsonld", "framed", "framed.jsonld"),
-                results.values().stream().collect(Collectors.toMap(ConversionResult::id, ConversionResult::fileName)));
+                results.values().stream().collect(Collectors.toMap(result -> result.id(), result -> result.fileName())));
         Model input = read(fixture(), Lang.RDFXML);
         for (ConversionResult result : response.results()) {
             assertNull(result.error(), () -> result.id() + ": " + result.error());
             assertNotNull(result.content());
-            assertEquals(result.content().getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
+            assertEquals(content(result).getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
             assertEquals(result.id().equals("rdfxml") ? "application/rdf+xml" : "application/ld+json", result.mediaType());
             if (!result.id().equals("framed")) {
-                assertTrue(input.isIsomorphicWith(read(result.content(),
+                assertTrue(input.isIsomorphicWith(read(content(result),
                         result.id().equals("rdfxml") ? Lang.RDFXML : Lang.JSONLD11)), result.id());
             }
         }
-        assertTrue(response.autoContext().contains("http://schema.org/"));
-        assertFalse(response.autoContext().contains("https://schema.org/"));
+        assertTrue(requireNonNull(response.autoContext()).contains("http://schema.org/"));
+        assertFalse(requireNonNull(response.autoContext()).contains("https://schema.org/"));
         assertTrue(response.resources().containsAll(List.of(ORGANISATION, ADDRESS)));
-        assertFalse(results.get("expanded").content().contains("\"@context\""));
+        assertFalse(content(requireNonNull(results.get("expanded"))).contains("\"@context\""));
     }
 
     @Test
@@ -389,10 +411,10 @@ class RdfConversionServiceTest {
         options.contextMode = "custom";
         options.context = CONTEXT;
         ConversionResult result = successful(service.convert(options.request()), "flattened");
-        JsonObject json = jsonObject(result.content());
+        JsonObject json = jsonObject(content(result));
         assertTrue(json.containsKey("@context"));
         assertTrue(json.getJsonArray("@graph").size() >= 5);
-        assertTrue(read(fixture(), Lang.RDFXML).isIsomorphicWith(read(result.content(), Lang.JSONLD11)));
+        assertTrue(read(fixture(), Lang.RDFXML).isIsomorphicWith(read(content(result), Lang.JSONLD11)));
     }
 
     @Test
@@ -405,7 +427,7 @@ class RdfConversionServiceTest {
         ConversionResponse response = service.convert(options.request());
         Model input = read(fixture(), Lang.RDFXML);
         for (String id : options.methods) {
-            assertTrue(input.isIsomorphicWith(read(successful(response, id).content(), Lang.JSONLD11)), id);
+            assertTrue(input.isIsomorphicWith(read(content(successful(response, id)), Lang.JSONLD11)), id);
         }
     }
 
@@ -418,9 +440,9 @@ class RdfConversionServiceTest {
                 {"@id":"https://example.org/root", "@embed":"@never",
                  "https://example.org/vocabulary/hasPart":{"@embed":"@always"}}
                 """;
-        ConversionResponse response = assertTimeoutPreemptively(Duration.ofSeconds(10),
+        ConversionResponse response = assertTimeoutPreemptively(requireNonNull(Duration.ofSeconds(10)),
                 () -> service.convert(options.request()));
-        JsonObject root = findById(jsonObject(successful(response, "framed").content()), PART_ROOT);
+        JsonObject root = findById(jsonObject(content(successful(response, "framed"))), PART_ROOT);
         assertNotNull(root);
         JsonValue value = root.get("ex:hasPart");
         if (value instanceof jakarta.json.JsonArray array) value = array.getFirst();
@@ -435,7 +457,7 @@ class RdfConversionServiceTest {
         JsonObject frame = jsonObject(response.effectiveFrame());
         assertEquals("@never", frame.getString("@embed"));
         assertEquals("@always", frame.getJsonObject(EX + "hasPart").getString("@embed"));
-        Model framed = read(successful(response, "framed").content(), Lang.JSONLD11);
+        Model framed = read(content(successful(response, "framed")), Lang.JSONLD11);
         assertFalse(framed.containsResource(framed.createResource("https://example.org/unrelated")));
         assertTrue(framed.size() < read(genericParts(), Lang.RDFXML).size(), "A selective frame intentionally omits unrelated resources");
     }
@@ -461,6 +483,65 @@ class RdfConversionServiceTest {
     }
 
     @Test
+    void generatedModeReplacesTheRootFrameContextAndPreservesTheCompleteSelectedRdf() throws Exception {
+        String xml = rdf("""
+                <rdf:Description rdf:about="https://example.org/root">
+                  <ex:label>Objekt</ex:label><ex:related rdf:resource="https://example.org/part"/>
+                </rdf:Description>
+                <rdf:Description rdf:about="https://example.org/part"><ex:label>Teil</ex:label></rdf:Description>
+                """);
+        Options options = new Options(xml);
+        options.methods = List.of("compacted", "flattened", "framed");
+        options.representation = "compacted";
+        options.contextMode = "generated";
+        options.context = "{broken"; // An obsolete custom-context draft has no effect in this mode.
+        options.frameMode = "custom";
+        options.frame = """
+                {"@context":{"ex":"https://wrong.example/"},
+                 "@id":"https://example.org/root","ex:related":{"@embed":"@always"}}
+                """;
+        ConversionResponse response = service.convert(options.request());
+        assertTrue(response.errors().isEmpty(), response.errors().toString());
+        JsonObject generated = jsonObject(requireNonNull(response.autoContext())).getJsonObject("@context");
+        assertEquals(generated, jsonObject(requireNonNull(response.effectiveFrame())).getJsonObject("@context"));
+        assertEquals(EX, generated.getJsonObject("ex").getString("@id"));
+        Model expected = read(xml, Lang.RDFXML);
+        try {
+            for (String format : List.of("compacted", "flattened", "framed")) {
+                ConversionResult result = successful(response, format);
+                assertEquals(generated, jsonObject(content(result)).getJsonObject("@context"), format);
+                Model actual = read(content(result), Lang.JSONLD11);
+                try {
+                    assertTrue(expected.isIsomorphicWith(actual), format + " keeps the same RDF despite a conflicting frame prefix");
+                } finally {
+                    actual.close();
+                }
+            }
+        } finally {
+            expected.close();
+        }
+    }
+
+    @Test
+    void generatedModeRejectsScopedFrameContextsWithoutFailingIndependentOutputs() throws Exception {
+        Options options = new Options(fixture());
+        options.methods = List.of("compacted", "framed");
+        options.contextMode = "generated";
+        options.frameMode = "custom";
+        for (String nested : List.of("{\"@context\":{\"ex\":\"https://wrong.example/\"}}",
+                "[{\"@context\":{}},{\"@embed\":\"@always\"}]")) {
+            options.frame = "{\"http://schema.org/member\":" + nested + "}";
+            ConversionResponse response = service.convert(options.request());
+            assertTrue(response.errors().stream().anyMatch(issue -> issue.field().equals("frame")
+                    && issue.message().contains("@context") && issue.message().contains("automatisch")));
+            assertNotNull(byId(response).get("framed").error());
+            assertNull(response.effectiveFrame());
+            successful(response, "rdfxml");
+            successful(response, "compacted");
+        }
+    }
+
+    @Test
     void noMatchRemainsExplicitWhenTheFrameContextAliasesGraph() throws Exception {
         Options options = new Options(fixture());
         options.methods = List.of("framed");
@@ -470,7 +551,7 @@ class RdfConversionServiceTest {
                  "@id":"https://example.org/does-not-exist"}
                 """;
         ConversionResult framed = successful(service.convert(options.request()), "framed");
-        assertTrue(jsonObject(framed.content()).getJsonArray("nodes").isEmpty());
+        assertTrue(jsonObject(content(framed)).getJsonArray("nodes").isEmpty());
         assertTrue(framed.empty(), "An alias for @graph must not hide a no-match result");
     }
 
@@ -532,7 +613,7 @@ class RdfConversionServiceTest {
         options.methods = List.of("expanded", "compacted");
         options.contextMode = "custom";
         options.context = "{\"@context\":\"https://127.0.0.1:1/unavailable-context\"}";
-        ConversionResponse response = assertTimeoutPreemptively(Duration.ofSeconds(10), () -> service.convert(options.request()));
+        ConversionResponse response = assertTimeoutPreemptively(requireNonNull(Duration.ofSeconds(10)), () -> service.convert(options.request()));
         successful(response, "rdfxml");
         successful(response, "expanded");
         assertNotNull(byId(response).get("compacted").error());
@@ -562,15 +643,15 @@ class RdfConversionServiceTest {
         ConversionResponse response = service.convert(options.request(), xml.getBytes(StandardCharsets.ISO_8859_1));
         assertTrue(response.errors().isEmpty(), response.errors().toString());
         ConversionResult result = successful(response, "rdfxml");
-        assertTrue(read(fixture(), Lang.RDFXML).isIsomorphicWith(read(result.content(), Lang.RDFXML)));
-        assertTrue(result.content().contains("Hauptstraße"));
-        assertEquals(result.content().getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
+        assertTrue(read(fixture(), Lang.RDFXML).isIsomorphicWith(read(content(result), Lang.RDFXML)));
+        assertTrue(content(result).contains("Hauptstraße"));
+        assertEquals(content(result).getBytes(StandardCharsets.UTF_8).length, result.sizeBytes());
     }
 
     private static void assertArchiveMatchesResults(ConversionResponse response) throws IOException {
         assertNotNull(response.zipBase64());
         Map<String, byte[]> entries = new HashMap<>();
-        try (var zip = new ZipInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(response.zipBase64())), StandardCharsets.UTF_8)) {
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(requireNonNull(response.zipBase64()))), StandardCharsets.UTF_8)) {
             for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
                 assertNull(entries.put(entry.getName(), zip.readAllBytes()), "Archive names must be unique");
             }
@@ -578,7 +659,7 @@ class RdfConversionServiceTest {
         var successful = response.results().stream().filter(result -> result.error() == null).toList();
         assertEquals(successful.size(), entries.size(), "The ZIP excludes failed results");
         for (ConversionResult result : successful) {
-            assertArrayEquals(result.content().getBytes(StandardCharsets.UTF_8), entries.get(result.fileName()), result.fileName());
+            assertArrayEquals(content(result).getBytes(StandardCharsets.UTF_8), entries.get(result.fileName()), result.fileName());
         }
     }
 
@@ -588,7 +669,7 @@ class RdfConversionServiceTest {
     }
 
     private static void assertResolved(ConversionResponse response, String subject, String object) {
-        Model model = read(successful(response, "rdfxml").content(), Lang.RDFXML);
+        Model model = read(content(successful(response, "rdfxml")), Lang.RDFXML);
         assertTrue(model.contains(model.createResource(subject), model.createProperty("https://example.org/vocabulary/link"), model.createResource(object)));
     }
 
@@ -600,8 +681,13 @@ class RdfConversionServiceTest {
         return result;
     }
 
-    private static Map<String, ConversionResult> byId(ConversionResponse response) {
-        return response.results().stream().collect(Collectors.toMap(ConversionResult::id, result -> result));
+    private static Map<@NonNull String, ConversionResult> byId(ConversionResponse response) {
+        return response.results().stream().collect(Collectors.toMap(result -> result.id(), result -> result));
+    }
+
+    /** Requires the document body only in tests that expect successful serialization. */
+    private static @NonNull String content(ConversionResult result) {
+        return requireNonNull(result.content(), () -> "Missing document content for " + result.id());
     }
 
     private static Model read(String content, Lang language) {
@@ -637,7 +723,7 @@ class RdfConversionServiceTest {
         return value instanceof jakarta.json.JsonArray array && array.stream().anyMatch(child -> hasKey(child, key));
     }
 
-    private static JsonObject findById(JsonValue value, String id) {
+    private static @Nullable JsonObject findById(JsonValue value, String id) {
         if (value instanceof JsonObject object) {
             if (id.equals(object.getString("@id", null))) return object;
             for (JsonValue child : object.values()) {
@@ -686,7 +772,7 @@ class RdfConversionServiceTest {
         String documentIri;
         Boolean rdfXmlOutput = true;
         Boolean jsonLdOutput = true;
-        List<String> methods = List.of("compacted");
+        List<@Nullable String> methods = List.of("compacted");
         String contextMode = "auto";
         String context;
         String frameMode = "form";

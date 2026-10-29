@@ -19,7 +19,8 @@ if (JSDOM) {
     const html = fs.readFileSync(path.join(root, 'src/main/resources/static/converter.html'), 'utf8');
     const script = fs.readFileSync(path.join(root, 'src/main/resources/static/converter.js'), 'utf8');
     const messages = fs.readFileSync(path.join(root, 'src/main/resources/static/messages.js'), 'utf8');
-    const draftKey = 'ddb-edm-converter-input-v1';
+    const sourceKey = 'ddb-rdf-source-v1';
+    const sourceScript = fs.readFileSync(path.join(root, 'src/main/resources/static/rdf-source.js'), 'utf8');
     const inputXml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ' +
         'xmlns:schema="http://schema.org/"><rdf:Description rdf:about="https://example.org/org">' +
@@ -64,7 +65,7 @@ if (JSDOM) {
         assert.fail('Timed out: ' + description);
     }
 
-    function harness(t, respond, handoff, storageOptions = {}) {
+    function harness(t, respond, sourceState) {
         const dom = new JSDOM(html, {
             url: 'https://validator.example/app/edm-validator/converter.html',
             runScripts: 'outside-only', pretendToBeVisual: true
@@ -105,12 +106,11 @@ if (JSDOM) {
             }
             return Promise.resolve(response).then(body => ({ ok: true, status: 200, json: async () => body }));
         };
-        if (handoff !== undefined) window.sessionStorage.setItem('ddb-edm-converter-handoff-v1', handoff);
         const localStorage = window.localStorage;
-        for (const [key, value] of Object.entries(storageOptions.seed || {})) localStorage.setItem(key, value);
-        if (storageOptions.draft !== undefined) localStorage.setItem(draftKey, storageOptions.draft);
-        storageOptions.beforeLoad?.(window, localStorage);
+        if (sourceState) localStorage.setItem(sourceKey, JSON.stringify(sourceState));
         window.eval(messages);
+        window.eval(fs.readFileSync(path.join(root, 'src/main/resources/static/code-view.js'), 'utf8'));
+        window.eval(sourceScript);
         window.eval(script);
         t.after(async () => {
             // Native <details> schedules toggle events outside jsdom's window timers.
@@ -173,20 +173,22 @@ if (JSDOM) {
         assert.equal(app.get('converterFlattenContext'), null);
         assert.equal(app.get('converterEmbedAddress'), null, 'the converter exposes no domain-specific address setting');
         assert.equal(app.get('converterAdvanced').open, false);
-        assert.equal(app.get('converterContextDetails').open, false);
+        for (const id of ['converterContextOptions', 'converterContextDetails', 'converterContext', 'converterAutoContext',
+            'converterContextAuto', 'converterContextCustom', 'converterFramePreview']) assert.equal(app.get(id), null, 'context is always generated automatically');
+        assert.equal(app.window.document.querySelector('[name=converterContextMode]'), null);
         assert.equal(app.get('converterEmptyState').classList.contains('d-none'), false);
         assert.equal(app.get('converterDownloadAll'), null);
         await app.submit();
         assert.equal(app.calls.length, 0);
         assert.match(app.get('converterInputError').textContent, /RDF\/XML/);
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         let request = JSON.parse(app.conversions().at(-1).body);
         assert.equal(request.rdfXmlOutput, false);
         assert.equal(request.jsonLdOutput, true);
         assert.deepEqual(request.methods, ['compacted']);
         assert.equal(request.representation, 'compacted');
-        assert.equal(request.contextMode, 'auto');
+        assert.equal(request.contextMode, 'generated');
         for (const key of ['context', 'frameMode', 'frame', 'rootIri', 'embed']) {
             assert.equal(Object.hasOwn(request, key), false, 'normal JSON omits unused ' + key);
         }
@@ -199,7 +201,7 @@ if (JSDOM) {
         assert.equal(app.get('converterEmptyState').classList.contains('d-none'), true);
         app.check('converterRdfXml');
         assert.equal(app.get('converterJsonLd').checked, false);
-        assert.match(app.get('converterMethodSummary').textContent, /JSON-LD/);
+        assert.match(app.get('converterOutputSummary').textContent, /RDF\/XML/);
         assert.equal(app.get('converterJsonOptions').classList.contains('d-none'), true);
         assert.equal(app.get('converterMethod').disabled, true);
         assert.equal(app.get('converterStructure').disabled, true);
@@ -221,15 +223,13 @@ if (JSDOM) {
             app.input('converterMethod', representation);
             app.input('converterStructure', structure);
             if (structure === 'framed') app.input('converterRoot', 'https://example.org/org');
-            assert.equal(app.get('converterContextOptions').classList.contains('d-none'),
-                representation !== 'compacted' && structure !== 'framed');
             assert.equal(app.get('converterFrameOptions').classList.contains('d-none'), structure !== 'framed');
             await app.submit();
             request = JSON.parse(app.conversions().at(-1).body);
             assert.deepEqual(request.methods, [structure === 'standard' ? representation : structure]);
             assert.equal(request.representation, representation);
             assert.equal(request.rdfXmlOutput, false);
-            assert.equal(Object.hasOwn(request, 'contextMode'), representation === 'compacted' || structure === 'framed');
+            assert.equal(request.contextMode, 'generated', 'all JSON-LD variants use the generated context');
             assert.equal(Object.hasOwn(request, 'context'), false, 'automatic contexts do not send an unused custom draft');
             if (structure === 'framed') {
                 assert.equal(request.frameMode, 'form');
@@ -257,7 +257,7 @@ if (JSDOM) {
             const request = JSON.parse(call.body);
             return xmlIssue ? payload([], {errors: [xmlIssue]}) : payload([resultFor(request)]);
         });
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         app.check('converterRdfXml');
         app.open('converterAdvanced');
         for (const representation of ['typed', 'explicit']) {
@@ -277,7 +277,7 @@ if (JSDOM) {
                 const selectedLabels = ['converterXmlRepresentation', 'converterXmlStructure']
                     .map(id => app.get(id).selectedOptions[0].textContent.trim());
                 const summary = selectedLabels.join(' · ');
-                assert.equal(app.get('converterXmlSummary').textContent, summary,
+                assert.equal(app.get('converterOutputSummary').textContent, 'RDF/XML · ' + summary,
                     'each independent selection and its recommendation marker appear in the summary');
                 assert.equal(app.get('converterResults').querySelector('h3').textContent, 'RDF/XML · ' + summary);
             }
@@ -287,7 +287,7 @@ if (JSDOM) {
         app.input('converterMethod', 'expanded');
         app.input('converterStructure', 'flattened');
         await app.submit();
-        assert.doesNotMatch(app.get('converterMethodSummary').textContent, /DDB/);
+        assert.doesNotMatch(app.get('converterOutputSummary').textContent, /DDB/);
         let request = JSON.parse(app.conversions().at(-1).body);
         assert.deepEqual(request.methods, ['flattened']);
         assert.equal(request.representation, 'expanded');
@@ -317,7 +317,7 @@ if (JSDOM) {
 
     test('preview, clipboard and UTF-8 download preserve each single generated document', async t => {
         const app = harness(t);
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         for (const choice of [{ xml: true }, ...jsonChoices]) {
             app.check(choice.xml ? 'converterRdfXml' : 'converterJsonLd');
             if (!choice.xml) {
@@ -332,6 +332,8 @@ if (JSDOM) {
             assert.equal(cards.length, 1);
             const code = cards[0].querySelector('pre code');
             assert.equal(code.textContent, result.content);
+            assert.equal(cards[0].querySelector('pre').textContent, result.content, 'decorative numbers never enter output text');
+            assert.equal(cards[0].querySelector('.code-view-gutter').getAttribute('aria-hidden'), 'true');
             assert.equal(code.className, result.id === 'rdfxml' ? 'language-markup' : 'language-json');
             action(cards[0], 'Kopieren').click();
             await settled();
@@ -348,7 +350,7 @@ if (JSDOM) {
 
     test('metadata is loaded on demand and cached across display-setting changes', async t => {
         const app = harness(t);
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await pause(850);
         assert.equal(app.inspections().length, 0, 'default typing does not parse RDF in the background');
         app.check('converterRdfXml');
@@ -356,7 +358,10 @@ if (JSDOM) {
         await pause(850);
         assert.equal(app.inspections().length, 0, 'XML needs no JSON-LD metadata request');
         app.check('converterJsonLd');
-        await until(() => app.inspections().length === 1, 'on-demand metadata request');
+        await pause(650);
+        assert.equal(app.inspections().length, 0, 'normal JSON output needs no metadata request');
+        app.input('converterStructure', 'framed');
+        await until(() => app.inspections().length === 1, 'on-demand framing metadata request');
         await settled();
         const request = JSON.parse(app.inspections()[0].body);
         assert.equal(request.rdfXmlOutput, false);
@@ -368,7 +373,6 @@ if (JSDOM) {
         app.input('converterStructure', 'framed');
         app.input('converterMethod', 'expanded');
         app.input('converterRoot', 'https://example.org/org');
-        app.input('converterContext', '{"@context":{}}');
         app.check('converterEmbedNever');
         app.open('converterAdvanced', false);
         app.open('converterAdvanced');
@@ -379,22 +383,23 @@ if (JSDOM) {
         app.input('converterBase', 'https://example.org/source/');
         await until(() => app.inspections().length === 2, 'refresh for changed base');
         await settled();
-        app.input('converterInput', inputXml + '\n');
+        app.input('rdfXmlInput', inputXml + '\n');
         await until(() => app.inspections().length === 3, 'refresh for changed source');
         await settled();
     });
 
     test('conversion supplies metadata without a second background parse', async t => {
         const app = harness(t);
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         app.open('converterAdvanced');
         await pause(850);
         assert.equal(app.inspections().length, 0);
-        app.open('converterContextDetails');
-        app.open('converterAutoContextDetails');
-        await pause(180);
-        assert.equal(app.get('converterAutoContext').textContent, context);
+        app.input('converterStructure', 'framed');
+        app.input('converterRoot', 'https://example.org/org');
+        app.check('converterFrameCustom');
+        assert.deepEqual(Object.keys(JSON.parse(app.get('converterFrame').value)).sort(), ['@embed', '@id'],
+            'the client draft has no context configuration; the server generates it');
         assert.equal(app.get('converterResources').options.length, 2);
     });
 
@@ -402,7 +407,7 @@ if (JSDOM) {
         let release;
         const app = harness(t, call => call.url.endsWith('/inspect') ? payload() :
             new Promise(resolve => { release = resolve; }));
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         const pending = app.conversions()[0];
         app.open('converterAdvanced');
@@ -415,31 +420,32 @@ if (JSDOM) {
         assert.equal(app.get('converterResults').querySelectorAll('article').length, 1);
     });
 
-    test('rapid editor changes batch highlighting while large documents remain readable', async t => {
+    test('the optional frame editor batches highlighting and keeps large drafts readable', async t => {
         const app = harness(t);
-        await pause(180);
-        app.highlights.length = 0;
-        for (let i = 1; i <= 3; i++) app.input('converterInput', inputXml + ' '.repeat(i));
-        await pause(180);
-        assert.equal(app.highlights.filter(call => call.editor === 'converterInput').length, 1);
-        app.highlights.length = 0;
-        const large = inputXml + ' '.repeat(500_000);
-        app.input('converterInput', large);
-        await pause(180);
-        assert.equal(app.highlights.filter(call => call.editor === 'converterInput').length, 0);
-        assert.equal(app.get('converterInput').value, large);
-        assert.equal(app.get('converterInput').parentElement.classList.contains('converter-editor-plain'), true);
         app.open('converterAdvanced');
-        app.open('converterContextDetails');
-        app.check('converterContextCustom');
+        app.input('converterStructure', 'framed');
+        app.check('converterFrameCustom');
         await pause(180);
-        const contextHighlights = app.highlights.filter(call => call.editor === 'converterContext').length;
-        assert.ok(contextHighlights > 0, 'revealing the custom context highlights its existing JSON');
-        app.open('converterContextDetails', false);
-        app.open('converterContextDetails');
+        app.highlights.length = 0;
+        const frame = '{"@id":"https://example.org/org","@embed":"@once"}';
+        for (let i = 1; i <= 3; i++) app.input('converterFrame', frame + ' '.repeat(i));
         await pause(180);
-        assert.equal(app.highlights.filter(call => call.editor === 'converterContext').length, contextHighlights,
-            'reopening an unchanged editor reuses its highlighted content');
+        assert.equal(app.highlights.filter(call => call.editor === 'converterFrame').length, 1);
+        app.highlights.length = 0;
+        const large = frame + ' '.repeat(500_000);
+        app.input('converterFrame', large);
+        await pause(180);
+        assert.equal(app.highlights.filter(call => call.editor === 'converterFrame').length, 0);
+        assert.equal(app.get('converterFrame').value, large);
+        assert.equal(app.get('converterFrame').parentElement.classList.contains('converter-editor-plain'), true);
+        app.input('converterFrame', frame);
+        await pause(180);
+        const highlights = app.highlights.filter(call => call.editor === 'converterFrame').length;
+        app.check('converterFrameForm');
+        app.check('converterFrameCustom');
+        await pause(180);
+        assert.equal(app.highlights.filter(call => call.editor === 'converterFrame').length, highlights,
+            'reopening an unchanged frame reuses its highlighted content');
     });
 
     test('edits clear stale downloads and late conversion responses cannot restore them', async t => {
@@ -448,7 +454,7 @@ if (JSDOM) {
             if (call.url.endsWith('/inspect')) return payload();
             return deferred ? new Promise(resolve => { release = resolve; }) : payload([data.compacted]);
         });
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         app.input('converterStructure', 'flattened');
         assert.equal(app.get('converterResults').children.length, 0);
@@ -458,13 +464,18 @@ if (JSDOM) {
         await app.submit();
         assert.equal(app.get('converterSubmit').disabled, true);
         const pending = app.conversions().at(-1);
-        app.input('converterInput', inputXml + '\n');
+        app.input('rdfXmlInput', inputXml + '\n');
         assert.equal(pending.signal.aborted, true);
         assert.equal(app.get('converterSubmit').disabled, false);
-        release(payload([data.flattened], { autoContext: '{"@context":{"outdated":"https://outdated/"}}' }));
+        release(payload([data.flattened], { autoContext: '{"@context":{"outdated":"https://outdated/"}}', resources: ['https://outdated/'] }));
         await settled();
         assert.equal(app.get('converterResults').children.length, 0);
-        assert.doesNotMatch(app.get('converterAutoContext').textContent, /outdated/);
+        app.input('converterStructure', 'framed');
+        app.input('converterRoot', 'https://example.org/org');
+        app.open('converterAdvanced');
+        app.check('converterFrameCustom');
+        assert.doesNotMatch(app.get('converterResources').textContent, /outdated/);
+        assert.equal(app.get('converterResources').options.length, 0, 'late metadata cannot repopulate a changed document');
     });
 
     test('unavailable or rejected Clipboard API selects the exact source for manual copying', async t => {
@@ -473,7 +484,7 @@ if (JSDOM) {
             app.window.navigator.clipboard.writeText = scenario === 'unavailable' ? undefined : async () => { throw new Error('Denied'); };
             let deprecatedCalls = 0;
             app.window.document.execCommand = () => { deprecatedCalls++; throw new Error('Deprecated copying'); };
-            app.input('converterInput', inputXml);
+            app.input('rdfXmlInput', inputXml);
             await app.submit();
             const card = app.get('converterResults').querySelector('article');
             const source = card.querySelector('pre');
@@ -488,39 +499,35 @@ if (JSDOM) {
 
     test('generic form framing and custom per-property rules remain separate and survive display-mode changes', async t => {
         const app = harness(t);
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         app.open('converterAdvanced');
         app.input('converterStructure', 'framed');
         app.input('converterRoot', 'https://example.org/org');
         app.check('converterEmbedNever');
-        const framePreview = app.get('converterFramePreview').closest('details');
-        if (framePreview) app.open(framePreview.id);
-        await pause(180);
-        const generated = JSON.parse(app.get('converterFramePreview').textContent);
+        app.check('converterFrameCustom');
+        const generated = JSON.parse(app.get('converterFrame').value);
         assert.equal(generated['@embed'], '@never');
         assert.equal(generated['@id'], 'https://example.org/org');
-        assert.equal(generated['@context'].schema, 'http://schema.org/');
-        assert.deepEqual(Object.keys(generated).sort(), ['@context', '@embed', '@id']);
-        app.check('converterFrameCustom');
-        assert.deepEqual(JSON.parse(app.get('converterFrame').value), generated);
+        assert.deepEqual(Object.keys(generated).sort(), ['@embed', '@id']);
         assert.equal(app.get('converterFrameFields').disabled, true);
         const manual = '{"@context":{"ex":"https://example.org/vocabulary/"},"@id":"https://example.org/manual","@embed":"@never","https://example.org/vocabulary/hasPart":{"@embed":"@always"}}';
         app.input('converterFrame', manual);
         app.check('converterFrameForm');
         app.input('converterRoot', 'https://example.org/other');
-        assert.deepEqual(Object.keys(JSON.parse(app.get('converterFramePreview').textContent)).sort(), ['@context', '@embed', '@id'],
-            'custom property rules do not leak into the generated form frame');
+        await app.submit();
+        const formRequest = JSON.parse(app.conversions().at(-1).body);
+        assert.equal(formRequest.frameMode, 'form');
+        assert.equal(formRequest.rootIri, 'https://example.org/other');
+        assert.equal(Object.hasOwn(formRequest, 'frame'), false, 'custom property rules do not leak into form framing');
         app.check('converterFrameCustom');
         assert.equal(app.get('converterFrame').value, manual);
         app.input('converterMethod', 'expanded');
         await pause(180);
-        const customPreview = JSON.parse(app.get('converterFramePreview').textContent);
-        assert.equal(customPreview['@context'].ex, 'https://example.org/vocabulary/');
-        assert.equal(customPreview['https://example.org/vocabulary/hasPart']['@embed'], '@always');
         await app.submit();
         const request = JSON.parse(app.conversions().at(-1).body);
         assert.equal(request.frameMode, 'custom');
+        assert.equal(request.contextMode, 'generated', 'the server replaces any custom root context with generated namespaces');
         assert.equal(request.frame, manual);
         assert.equal(Object.hasOwn(request, 'rootIri'), false, 'the disabled form root does not override a custom frame');
         assert.equal(Object.hasOwn(request, 'embed'), false, 'the disabled form embed setting is not sent');
@@ -530,190 +537,55 @@ if (JSDOM) {
         assert.equal(Object.hasOwn(request, 'flattenWithContext'), false);
     });
 
-    test('one-time page handoff keeps the source IRI and reset restores the simple initial state', async t => {
+    test('the shared document is immediately usable and resetting options preserves it for other tools', async t => {
         const originalIri = 'https://api.example/record/source.rdf';
-        const oldDraft = {rdfXml: '<old/>', baseIri: 'https://old.example/', documentIri: 'https://old.example/source.rdf'};
-        const app = harness(t, null, JSON.stringify({ rdfXml: inputXml, documentIri: originalIri }), {
-            draft: JSON.stringify(oldDraft), seed: {'ddb-edm-validator-xml': '<validation/>'}
-        });
-        assert.equal(app.window.sessionStorage.getItem('ddb-edm-converter-handoff-v1'), null);
-        assert.equal(app.get('converterWorkspace').classList.contains('d-none'), false);
-        assert.equal(app.get('validatorWorkspace'), null);
-        assert.equal(app.get('converterInput').value, inputXml);
-        assert.equal(app.get('converterBase').value, '', 'a fresh document does not inherit an unrelated saved base');
-        assert.deepEqual(JSON.parse(app.localStorage.getItem(draftKey)), {rdfXml: inputXml, baseIri: '', documentIri: originalIri});
+        const source = {rdfXml: inputXml, documentIri: originalIri, ddbUri: 'https://www.deutsche-digitale-bibliothek.de/item/EXAMPLE'};
+        const app = harness(t, null, source);
+        assert.equal(app.get('converterInput'), null, 'the converter has no separate source editor');
+        assert.equal(app.get('converterFile'), null, 'file import belongs to the shared source');
+        assert.equal(app.get('rdfXmlInput').closest('#converterForm'), null, 'source is above the tool options');
+        assert.equal(app.get('rdfXmlInput').value, inputXml);
         await app.submit();
-        assert.equal(JSON.parse(app.conversions().at(-1).body).documentIri, originalIri);
-        assert.equal(JSON.parse(app.conversions().at(-1).body).baseIri, null);
-        const restored = harness(t, null, undefined, {draft: app.localStorage.getItem(draftKey)});
-        await restored.submit();
-        assert.equal(JSON.parse(restored.conversions().at(-1).body).documentIri, originalIri);
+        const request = JSON.parse(app.conversions().at(-1).body);
+        assert.equal(request.rdfXml, inputXml);
+        assert.equal(request.documentIri, originalIri);
+        assert.equal(request.baseIri, null);
         app.input('converterMethod', 'expanded');
+        app.input('converterBase', 'https://temporary.example/');
         app.open('converterAdvanced');
         app.get('converterReset').click();
-        assert.equal(app.get('converterInput').value, '');
+        assert.equal(app.get('rdfXmlInput').value, inputXml, 'resetting options never clears the document shared with other tools');
+        assert.equal(app.window.RdfSource.get().documentIri, originalIri);
+        assert.equal(JSON.parse(app.localStorage.getItem(sourceKey)).rdfXml, inputXml);
         assert.equal(app.get('converterJsonLd').checked, true);
-        assert.equal(app.get('converterRdfXml').checked, false);
         assert.equal(app.get('converterMethod').value, 'compacted');
         assert.equal(app.get('converterStructure').value, 'standard');
         assert.equal(app.get('converterXmlRepresentation').value, 'typed');
         assert.equal(app.get('converterXmlStructure').value, 'flat');
+        assert.equal(app.get('converterBase').value, '');
         assert.equal(app.get('converterAdvanced').open, false);
         assert.equal(app.get('converterResults').children.length, 0);
-        assert.equal(app.localStorage.getItem(draftKey), null);
-        assert.equal(app.localStorage.getItem('ddb-edm-validator-xml'), '<validation/>');
-        app.input('converterInput', inputXml);
+    });
+
+    test('a new shared source invalidates pending work while editing only the DDB URI leaves it usable', async t => {
+        let release;
+        const app = harness(t, call => call.url.endsWith('/inspect') ? payload() :
+            new Promise(resolve => { release = resolve; }));
+        app.window.RdfSource.set({rdfXml: inputXml, documentIri: 'https://example.org/original.rdf'});
+        app.input('converterBase', 'https://temporary.example/');
         await app.submit();
-        assert.equal(JSON.parse(app.conversions().at(-1).body).documentIri, null);
-    });
-
-    test('invalid page handoffs are cleared without inserting document markup or restoring stale input', async t => {
-        for (const handoff of ['not json', 'null', '[]', '{"documentIri":"https://example.org/source.rdf"}', '{"rdfXml":42}']) {
-            const app = harness(t, null, handoff);
-            assert.equal(app.window.sessionStorage.getItem('ddb-edm-converter-handoff-v1'), null);
-            assert.equal(app.get('converterInput').value, '');
-            assert.equal(app.window.document.querySelector('img'), null);
-        }
-        const direct = harness(t);
-        assert.equal(direct.get('converterInput').value, '', 'a direct visit has no one-time transfer to restore');
-        const literal = '<img src=x onerror=alert(1)>';
-        const untrusted = harness(t, null, JSON.stringify({ rdfXml: literal, documentIri: {} }));
-        assert.equal(untrusted.get('converterInput').value, literal);
-        assert.equal(untrusted.window.document.querySelector('img'), null);
-        await untrusted.submit();
-        assert.equal(JSON.parse(untrusted.conversions().at(-1).body).documentIri, null);
-        const saved = {rdfXml: inputXml, baseIri: 'https://example.org/saved/', documentIri: 'https://example.org/saved.rdf'};
-        const preserved = harness(t, null, 'not json', {draft: JSON.stringify(saved)});
-        assert.equal(preserved.get('converterInput').value, inputXml, 'an invalid handoff does not erase a saved draft');
-        assert.equal(preserved.get('converterBase').value, saved.baseIri);
-        assert.deepEqual(JSON.parse(preserved.localStorage.getItem(draftKey)), saved);
-    });
-
-    test('input drafts preserve exact XML and raw base across reloads and flush before submit or navigation', async t => {
-        const app = harness(t);
-        const rawXml = '\n  ' + inputXml + '  \n';
-        const rawBase = '  https://example.org/source/  ';
-        app.input('converterInput', rawXml);
-        app.input('converterBase', rawBase);
-        assert.equal(app.localStorage.getItem(draftKey), null, 'typing does not synchronously write every keystroke');
-        await pause(350);
-        assert.deepEqual(JSON.parse(app.localStorage.getItem(draftKey)), {rdfXml: rawXml, baseIri: rawBase, documentIri: null});
-        const reload = harness(t, null, undefined, {draft: app.localStorage.getItem(draftKey)});
-        assert.equal(reload.get('converterInput').value, rawXml);
-        assert.equal(reload.get('converterBase').value, rawBase);
-        const submitted = rawXml + '<!-- submit -->';
-        reload.input('converterInput', submitted);
-        await reload.submit();
-        assert.equal(JSON.parse(reload.localStorage.getItem(draftKey)).rdfXml, submitted, 'submit flushes the pending draft');
-        assert.equal(JSON.parse(reload.conversions().at(-1).body).baseIri, rawBase.trim());
-        const navigated = submitted + '<!-- navigation -->';
-        reload.input('converterInput', navigated);
-        reload.get('showValidator').addEventListener('click', event => event.preventDefault());
-        reload.get('showValidator').dispatchEvent(new reload.window.MouseEvent('click', {bubbles: true, cancelable: true}));
-        assert.equal(JSON.parse(reload.localStorage.getItem(draftKey)).rdfXml, navigated);
-        const hidden = navigated + '<!-- pagehide -->';
-        reload.input('converterInput', hidden);
-        reload.window.dispatchEvent(new reload.window.Event('pagehide'));
-        const saved = JSON.parse(reload.localStorage.getItem(draftKey));
-        assert.deepEqual(saved, {rdfXml: hidden, baseIri: rawBase, documentIri: null});
-        assert.deepEqual(Object.keys(saved).sort(), ['baseIri', 'documentIri', 'rdfXml'], 'output settings and result documents are not persisted');
-    });
-
-    test('clearing or resetting input removes only its draft and cannot resurrect a pending save', async t => {
-        const app = harness(t, null, undefined, {seed: {'ddb-edm-validator-xml': '<validation/>', 'another-setting': 'keep'}});
-        app.input('converterInput', inputXml);
-        await app.submit();
-        assert.ok(app.localStorage.getItem(draftKey));
-        app.input('converterInput', '');
-        assert.equal(app.localStorage.getItem(draftKey), null, 'clearing the source removes its draft immediately');
-        app.input('converterInput', inputXml);
-        app.input('converterXmlRepresentation', 'explicit');
-        app.input('converterXmlStructure', 'nested');
-        app.get('converterReset').click();
-        await pause(350);
-        app.window.dispatchEvent(new app.window.Event('pagehide'));
-        assert.equal(app.localStorage.getItem(draftKey), null, 'the cancelled debounce does not save reset input later');
-        assert.equal(app.localStorage.getItem('ddb-edm-validator-xml'), '<validation/>');
-        assert.equal(app.localStorage.getItem('another-setting'), 'keep');
-        assert.equal(app.get('converterXmlRepresentation').value, 'typed');
-        assert.equal(app.get('converterXmlStructure').value, 'flat');
-    });
-
-    test('corrupt or unavailable storage does not execute markup or interrupt editing and conversion', async t => {
-        for (const draft of ['not json', 'null', '[]', '{"rdfXml":42}']) {
-            const app = harness(t, null, undefined, {draft});
-            assert.equal(app.get('converterInput').value, '');
-            assert.equal(app.localStorage.getItem(draftKey), null);
-        }
-        const literal = '<img src=x onerror=alert(1)>';
-        const raw = harness(t, null, undefined, {draft: JSON.stringify({rdfXml: literal, baseIri: {}, documentIri: []})});
-        assert.equal(raw.get('converterInput').value, literal);
-        assert.equal(raw.get('converterBase').value, '');
-        assert.equal(raw.window.document.querySelector('img'), null);
-        for (const failure of ['access', 'getItem', 'setItem', 'removeItem']) {
-            const runtimeErrors = [];
-            const app = harness(t, null, undefined, {beforeLoad(window, local) {
-                window.addEventListener('error', event => runtimeErrors.push(event.error));
-                if (failure === 'access') Object.defineProperty(window, 'localStorage', {get() {throw new window.DOMException('Blocked', 'SecurityError');}});
-                else {
-                    const original = window.Storage.prototype[failure];
-                    window.Storage.prototype[failure] = function (...args) {
-                        if (this === local) throw new window.DOMException('Unavailable', failure === 'setItem' ? 'QuotaExceededError' : 'SecurityError');
-                        return original.apply(this, args);
-                    };
-                }
-            }});
-            app.input('converterInput', inputXml);
-            await app.submit();
-            assert.equal(app.conversions().length, 1, failure + ' does not block conversion');
-            app.get('converterReset').click();
-            app.window.dispatchEvent(new app.window.Event('pagehide'));
-            assert.equal(app.get('converterInput').value, '');
-            assert.deepEqual(runtimeErrors, []);
-        }
-    });
-
-    test('file reads survive setting edits, preserve raw bytes and switch to UTF-8 after text edits', async t => {
-        const app = harness(t);
-        const bytes = Buffer.from(inputXml.replace('UTF-8', 'ISO-8859-1'), 'latin1');
-        const file = new app.window.File([bytes], 'organisation.owl', { type: 'application/rdf+xml' });
-        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        let releaseRead;
-        file.arrayBuffer = () => new Promise(resolve => { releaseRead = resolve; });
-        Object.defineProperty(app.get('converterFile'), 'files', { configurable: true, value: [file] });
-        app.get('converterFile').dispatchEvent(new app.window.Event('change', { bubbles: true }));
-        assert.equal(app.get('converterSubmit').disabled, true);
-        app.input('converterMethod', 'expanded');
-        app.input('converterBase', 'https://example.org/source/');
-        assert.equal(app.get('converterSubmit').disabled, true, 'changing settings does not interrupt file decoding');
-        file.arrayBuffer = async () => buffer;
-        releaseRead(buffer);
-        await until(() => app.get('converterInput').value.includes('München'), 'upload decoding');
-        assert.match(app.get('converterInput').value, /encoding="UTF-8"/);
-        const savedUpload = JSON.parse(app.localStorage.getItem(draftKey));
-        assert.deepEqual(savedUpload, {rdfXml: app.get('converterInput').value, baseIri: 'https://example.org/source/', documentIri: null});
-        const restoredUpload = harness(t, null, undefined, {draft: app.localStorage.getItem(draftKey)});
-        assert.equal(restoredUpload.get('converterFile').files.length, 0, 'a restored upload is editable text, never a recreated local File');
-        await restoredUpload.submit();
-        assert.equal(restoredUpload.conversions().at(-1).url, './api/convert');
-        assert.equal(JSON.parse(restoredUpload.conversions().at(-1).body).rdfXml, savedUpload.rdfXml);
-        await app.submit();
-        const upload = app.conversions().at(-1);
-        assert.equal(upload.url, './api/convert/upload');
-        assert.deepEqual(Buffer.from(await upload.body.get('file').arrayBuffer()), bytes);
-        const options = JSON.parse(upload.body.get('options'));
-        assert.equal(options.rdfXml, null);
-        assert.equal(options.documentIri, null);
-        assert.equal(options.rdfXmlOutput, false);
-        assert.deepEqual(options.methods, ['expanded']);
-        assert.equal(options.representation, 'expanded');
-        assert.equal(options.baseIri, 'https://example.org/source/');
-        const edited = app.get('converterInput').value + '\n';
-        app.input('converterInput', edited);
-        await app.submit();
-        const text = app.conversions().at(-1);
-        assert.equal(text.url, './api/convert');
-        assert.equal(JSON.parse(text.body).rdfXml, edited);
+        const pending = app.conversions().at(-1);
+        app.input('ddbUri', 'https://www.deutsche-digitale-bibliothek.de/item/OTHER');
+        assert.equal(pending.signal.aborted, false, 'a candidate URI does not change the current document');
+        app.window.RdfSource.set({rdfXml: '<new/>', documentIri: 'https://example.org/new.rdf'});
+        assert.equal(pending.signal.aborted, true);
+        assert.equal(app.get('converterBase').value, '', 'a different source does not inherit an unrelated conversion base');
+        assert.equal(app.get('converterSubmit').disabled, false);
+        release(payload([data.compacted]));
+        await settled();
+        assert.equal(app.get('converterResults').children.length, 0);
+        assert.equal(app.get('rdfXmlInput').value, '<new/>');
+        assert.equal(app.window.RdfSource.get().documentIri, 'https://example.org/new.rdf');
     });
 
     test('field errors reveal advanced controls and an empty framed result is explicit', async t => {
@@ -725,27 +597,22 @@ if (JSDOM) {
                 { errors: [{ field: 'context', message: 'Ungültiger Kontext: @context fehlt.' }] });
             return payload([{ ...data.framed, content: '{"@context":{},"@graph":[]}', empty: true }]);
         });
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         await app.submit();
         assert.equal(app.get('converterAdvanced').open, true);
         assert.match(app.get('converterBaseError').textContent, /Basis-IRI/);
         assert.match(app.get('converterErrors').textContent, /Basis-IRI/, 'the top-level alert also explains the field error');
         assert.equal(app.get('converterErrors').closest('#pageMessages'), app.get('pageMessages'));
         mode = 'context';
-        app.check('converterContextCustom');
-        app.input('converterContext', '{"unexpected":true}');
         app.open('converterAdvanced', false);
-        app.open('converterContextDetails', false);
         await app.submit();
-        assert.equal(app.get('converterAdvanced').open, true);
-        assert.equal(app.get('converterContextDetails').open, true);
-        assert.match(app.get('converterContextError').textContent, /@context fehlt/);
+        assert.equal(app.get('converterAdvanced').open, false, 'a generated context has no hidden editor to reveal');
+        assert.match(app.get('converterOutputError').textContent, /@context fehlt/);
         assert.match(app.get('converterErrors').textContent, /@context fehlt/);
-        assert.equal(app.get('converterContext').getAttribute('aria-invalid'), 'true');
+        assert.equal(app.window.document.activeElement, app.get('converterJsonLd'));
         assert.equal(app.get('converterResults').querySelectorAll('button').length, 0);
         mode = 'empty';
         app.input('converterStructure', 'framed');
-        app.check('converterContextAuto');
         app.input('converterRoot', 'https://example.org/org');
         await app.submit();
         const card = app.get('converterResults').querySelector('article');
@@ -771,7 +638,7 @@ if (JSDOM) {
             if (call.url.endsWith('/inspect')) return payload();
             return payload([failed ? {...data.rdfxml, content: null, error: cause} : data.rdfxml]);
         });
-        app.input('converterInput', inputXml);
+        app.input('rdfXmlInput', inputXml);
         app.check('converterRdfXml');
         await app.submit();
         const errors = app.get('converterErrors');

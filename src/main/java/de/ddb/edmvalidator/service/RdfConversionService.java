@@ -11,6 +11,8 @@ import de.ddb.edmvalidator.api.ConversionIssue;
 import de.ddb.edmvalidator.api.ConversionRequest;
 import de.ddb.edmvalidator.api.ConversionResponse;
 import de.ddb.edmvalidator.api.ConversionResult;
+import de.ddb.edmvalidator.api.GraphRequest;
+import de.ddb.edmvalidator.api.GraphResponse;
 import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
@@ -29,6 +31,8 @@ import org.apache.jena.riot.RDFWriter;
 import org.apache.jena.riot.SysRIOT;
 import org.apache.jena.riot.system.ErrorHandlerFactory;
 import org.apache.jena.util.SplitIRI;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Element;
 import org.w3c.dom.Document;
@@ -46,6 +50,7 @@ import javax.xml.transform.stream.StreamResult;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.Serial;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
@@ -55,15 +60,27 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/** RDF conversion has no HTTP or UI dependencies and never dereferences document IRIs. */
+/**
+ * Converts one RDF graph into independent RDF/XML and JSON-LD outputs.
+ *
+ * <p>Instances are stateless: every call owns and closes its Jena model. Input IRIs
+ * are identifiers, never download locations; JSON-LD contexts must be embedded.
+ * An output-specific failure leaves unrelated requested formats available.
+ *
+ * <p>The browser uses {@code contextMode=generated}: every output and custom frame
+ * uses the namespace context generated from the current RDF source. Root frame
+ * contexts are replaced and scoped frame contexts are rejected. Legacy API modes
+ * {@code auto} and {@code custom} retain their independent custom-frame contexts.
+ */
 @Service
 public class RdfConversionService {
     public static final int MAX_INPUT_BYTES = 1024 * 1024;
@@ -71,30 +88,49 @@ public class RdfConversionService {
     // Reserved RDF/XML names cannot encode an implicit rdf:type statement.
     private static final Set<String> RESERVED_NODE_NAMES = Set.of("RDF", "Description", "ID", "about",
             "parseType", "resource", "nodeID", "datatype", "li", "aboutEach", "aboutEachPrefix", "bagID");
-    private static final List<String> METHODS = List.of("expanded", "compacted", "flattened", "framed");
-    private static final DocumentLoader LOCAL_ONLY = (uri, options) -> {
+    private static final List<@NonNull String> METHODS = List.of("expanded", "compacted", "flattened", "framed");
+    private static final DocumentLoader LOCAL_ONLY = (_, _) -> {
         throw new JsonLdError(JsonLdErrorCode.LOADING_REMOTE_CONTEXT_FAILED,
                 "Externe JSON-LD-Kontexte werden nicht geladen. Bitte einen eingebetteten Kontext verwenden.");
     };
 
-    public ConversionResponse convert(ConversionRequest request) {
+    /** Converts pasted RDF/XML; a missing request produces a field-level input error. */
+    public @NonNull ConversionResponse convert(@Nullable ConversionRequest request) {
         return process(request, null, false);
     }
 
     /** Upload bytes remain bytes so the XML declaration/BOM determines the source encoding. */
-    public ConversionResponse convert(ConversionRequest request, byte[] upload) {
+    public @NonNull ConversionResponse convert(@Nullable ConversionRequest request, byte @Nullable [] upload) {
         return process(request, upload, false);
     }
 
-    public ConversionResponse inspect(ConversionRequest request) {
+    /** Parses the source for context and resource metadata without serializing output files. */
+    public @NonNull ConversionResponse inspect(@Nullable ConversionRequest request) {
         return process(request, null, true);
     }
 
-    private ConversionResponse process(ConversionRequest request, byte[] upload, boolean inspect) {
-        List<ConversionIssue> issues = new ArrayList<>();
+    /** Uses the conversion parser and its local-only XML/IRI rules for an independent graph preview. */
+    public @NonNull GraphResponse graphPreview(GraphRequest request) {
+        ConversionRequest source = new ConversionRequest(request.rdfXml(), null, request.documentIri(),
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        Model model = ModelFactory.createDefaultModel();
+        try {
+            parse(source, null, model);
+            return RdfGraphPreviewBuilder.build(model);
+        } catch (Exception ex) {
+            return new GraphResponse(Objects.requireNonNull(List.of()), Objects.requireNonNull(List.of()),
+                    "Ungültiges RDF/XML: " + message(ex));
+        } finally {
+            model.close();
+        }
+    }
+
+    private @NonNull ConversionResponse process(@Nullable ConversionRequest request, byte @Nullable [] upload, boolean inspect) {
+        List<@NonNull ConversionIssue> issues = new ArrayList<>();
         List<ConversionResult> results = new ArrayList<>();
         if (request == null) return failure("rdfXml", "Bitte RDF/XML eingeben oder eine Datei hochladen.");
-        List<String> methods = request.methods() == null ? List.of("compacted") : request.methods();
+        List<@Nullable String> requestedMethods = request.methods();
+        List<@Nullable String> methods = requestedMethods == null ? List.of("compacted") : requestedMethods;
         boolean xml = !Boolean.FALSE.equals(request.rdfXmlOutput());
         boolean jsonld = !Boolean.FALSE.equals(request.jsonLdOutput());
         boolean compactFlattening = "compacted".equals(request.representation());
@@ -115,7 +151,7 @@ public class RdfConversionService {
             parse(request, upload, model);
         } catch (ConversionInputException ex) {
             model.close();
-            return failure(ex.field, ex.getMessage());
+            return failure(ex.field, message(ex));
         } catch (Exception ex) {
             model.close();
             return failure("rdfXml", "Ungültiges RDF/XML: " + message(ex));
@@ -156,7 +192,7 @@ public class RdfConversionService {
             if (inspect) return response(results, issues, autoContextText, frameText, resources);
 
             if (xml) {
-                List<ConversionIssue> xmlErrors = xmlOptionsErrors(request);
+                List<@NonNull ConversionIssue> xmlErrors = xmlOptionsErrors(request);
                 if (!xmlErrors.isEmpty()) {
                     issues.addAll(xmlErrors);
                     results.add(failed("rdfxml", "converted.rdf", "application/rdf+xml",
@@ -178,13 +214,13 @@ public class RdfConversionService {
                 // supplies the same complete graph to every independent operation.
                 source = JsonDocument.of(new StringReader(serialize(model, RDFFormat.JSONLD11_PLAIN)));
             } catch (Exception ex) {
-                for (String method : METHODS) if (methods.contains(method)) {
+                for (@NonNull String method : METHODS) if (methods.contains(method)) {
                     results.add(failed(method, fileName(method, request.representation()), "application/ld+json", "JSON-LD konnte nicht erzeugt werden: " + message(ex)));
                 }
                 return response(results, issues, autoContextText, frameText, resources);
             }
 
-            for (String method : METHODS) {
+            for (@NonNull String method : METHODS) {
                 if (!methods.contains(method)) continue;
                 try {
                     JsonStructure output;
@@ -204,7 +240,8 @@ public class RdfConversionService {
                         }
                         case "framed" -> {
                             if (frameError != null) throw new IllegalArgumentException(frameError);
-                            output = JsonLd.frame(source, JsonDocument.of(effectiveFrame)).options(options()).get();
+                            output = JsonLd.frame(source, JsonDocument.of(Objects.requireNonNull(effectiveFrame,
+                                    "A successful frame configuration must supply a frame"))).options(options()).get();
                             if ("expanded".equals(request.representation())) {
                                 // Expansion changes terms and values, while keeping the frame's
                                 // finite nesting and selected view of the graph intact.
@@ -229,25 +266,28 @@ public class RdfConversionService {
         }
     }
 
-    private void parse(ConversionRequest request, byte[] upload, Model model) throws Exception {
+    private void parse(ConversionRequest request, byte @Nullable [] upload, Model model) throws Exception {
         String input = request.rdfXml();
-        if (upload == null && (input == null || input.isBlank())) {
+        if (upload == null && !nonblank(input)) {
             throw new ConversionInputException("rdfXml", "Bitte RDF/XML eingeben oder eine Datei hochladen.");
         }
-        int size = upload == null ? input.getBytes(StandardCharsets.UTF_8).length : upload.length;
+        // A text source is required only when there is no upload; keep that invariant local.
+        byte[] bytes = upload == null ? Objects.requireNonNull(input).getBytes(StandardCharsets.UTF_8) : upload;
+        int size = bytes.length;
         if (size == 0) throw new ConversionInputException("rdfXml", "Die RDF/XML-Datei ist leer.");
         if (size > MAX_INPUT_BYTES) throw new ConversionInputException("rdfXml", "RDF/XML darf höchstens 1 MiB groß sein.");
         String base = nonblank(request.baseIri()) ? absoluteIri(request.baseIri(), "Basis-IRI")
                 : nonblank(request.documentIri()) ? absoluteIri(request.documentIri(), "Dokument-IRI") : null;
 
-        InputSource secureInput = upload == null ? new InputSource(new StringReader(input)) : new InputSource(new ByteArrayInputStream(upload));
+        InputSource secureInput = upload == null ? new InputSource(new StringReader(Objects.requireNonNull(input)))
+                : new InputSource(new ByteArrayInputStream(upload));
         Element root = readXml(secureInput).getDocumentElement();
         checkBases(root, base == null ? null : URI.create(base));
 
         var parser = RDFParser.create().lang(Lang.RDFXML).strict(true)
                 .errorHandler(ErrorHandlerFactory.errorHandlerStrict);
         if (base != null) parser.base(base);
-        if (upload == null) parser.source(new StringReader(input));
+        if (upload == null) parser.source(new StringReader(Objects.requireNonNull(input)));
         else parser.source(new ByteArrayInputStream(upload));
         parser.parse(model);
     }
@@ -265,7 +305,7 @@ public class RdfConversionService {
         factory.setXIncludeAware(false);
         factory.setExpandEntityReferences(false);
         var builder = factory.newDocumentBuilder();
-        builder.setEntityResolver((publicId, systemId) -> { throw new org.xml.sax.SAXException("Externe Entitäten sind nicht erlaubt."); });
+        builder.setEntityResolver((_, _) -> { throw new org.xml.sax.SAXException("Externe Entitäten sind nicht erlaubt."); });
         builder.setErrorHandler(new DefaultHandler() {
             @Override public void error(SAXParseException e) throws SAXParseException { throw e; }
             @Override public void fatalError(SAXParseException e) throws SAXParseException { throw e; }
@@ -274,7 +314,7 @@ public class RdfConversionService {
     }
 
     /** Reject ambiguous identifiers before Jena could supply a process working-directory base. */
-    private void checkBases(Element element, URI inheritedBase) throws ConversionInputException {
+    private void checkBases(Element element, @Nullable URI inheritedBase) throws ConversionInputException {
         URI base = inheritedBase;
         if (element.hasAttributeNS(XMLConstants.XML_NS_URI, "base")) {
             String value = element.getAttributeNS(XMLConstants.XML_NS_URI, "base");
@@ -316,7 +356,7 @@ public class RdfConversionService {
     }
 
     private List<String> resources(Model model) {
-        Set<String> result = new TreeSet<>();
+        Set<String> result = new HashSet<>();
         var statements = model.listStatements();
         try {
             statements.forEachRemaining(s -> {
@@ -324,26 +364,32 @@ public class RdfConversionService {
                 if (s.getObject().isURIResource()) result.add(s.getResource().getURI());
             });
         } finally { statements.close(); }
-        return List.copyOf(result);
+        return result.stream().sorted().toList();
     }
 
-    private JsonObject contextDocument(String content) {
+    private JsonObject contextDocument(@Nullable String content) {
         JsonObject document = jsonObject(content, "Ein JSON-Dokument mit oberster @context-Eigenschaft ist erforderlich.");
         if (!document.containsKey("@context")) throw new IllegalArgumentException("Das JSON-Dokument benötigt eine oberste @context-Eigenschaft.");
         checkLocalContexts(document);
         return Json.createObjectBuilder().add("@context", document.get("@context")).build();
     }
 
-    private boolean hasOwnContext(String frame) {
+    private boolean hasOwnContext(@Nullable String frame) {
         try { return jsonObject(frame, "Das Frame muss ein JSON-Objekt sein.").containsKey("@context"); }
         catch (IllegalArgumentException ex) { return false; }
     }
 
-    private JsonObject frameDocument(ConversionRequest request, JsonObject selectedContext, String contextError) throws ConversionInputException {
+    private JsonObject frameDocument(ConversionRequest request, JsonObject selectedContext, @Nullable String contextError) throws ConversionInputException {
         JsonObjectBuilder frame;
         boolean custom = "custom".equals(request.frameMode());
         if (custom) {
             JsonObject own = jsonObject(request.frame(), "Das Frame muss ein JSON-Objekt sein.");
+            if ("generated".equals(request.contextMode())) {
+                // The root context is presentation metadata supplied by this mode. A nested
+                // context could change a frame rule's meaning, so reject it instead of removing it.
+                own = Json.createObjectBuilder(own).remove("@context").build();
+                rejectScopedFrameContexts(own);
+            }
             checkLocalContexts(own);
             frame = Json.createObjectBuilder(own);
             if (!own.containsKey("@context")) {
@@ -353,12 +399,24 @@ public class RdfConversionService {
         } else {
             if (contextError != null) throw new IllegalArgumentException(contextError);
             String root = absoluteIri(request.rootIri(), "Wurzelressource");
-            String embed = nonblank(request.embed()) ? request.embed() : "@once";
+            String requestedEmbed = request.embed();
+            String embed = requestedEmbed != null && !requestedEmbed.isBlank() ? requestedEmbed : "@once";
             if (!embed.startsWith("@")) embed = "@" + embed;
             if (!List.of("@once", "@always", "@never").contains(embed)) throw new IllegalArgumentException("Bitte eine gültige Einbettungsvorgabe auswählen.");
             frame = Json.createObjectBuilder().add("@context", selectedContext.get("@context")).add("@id", root).add("@embed", embed);
         }
         return frame.build();
+    }
+
+    /** Keeps every custom-frame rule in the source-generated namespace context. */
+    private void rejectScopedFrameContexts(JsonValue value) {
+        if (value instanceof JsonObject object) {
+            if (object.containsKey("@context")) {
+                throw new IllegalArgumentException("Verschachtelte @context-Einträge im Frame sind nicht erlaubt; "
+                        + "der Kontext wird automatisch aus dem RDF/XML erzeugt.");
+            }
+            object.values().forEach(this::rejectScopedFrameContexts);
+        } else if (value instanceof JsonArray array) array.forEach(this::rejectScopedFrameContexts);
     }
 
     /** Reject remote context URLs and @import at every nested/scoped context location. */
@@ -375,8 +433,8 @@ public class RdfConversionService {
         if (context instanceof JsonArray array) array.forEach(this::checkContextValue);
     }
 
-    private JsonObject jsonObject(String text, String required) {
-        if (!nonblank(text)) throw new IllegalArgumentException(required);
+    private JsonObject jsonObject(@Nullable String text, String required) {
+        if (text == null || text.isBlank()) throw new IllegalArgumentException(required);
         if (text.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) throw new IllegalArgumentException("JSON darf höchstens 1 MiB groß sein.");
         try (var reader = Json.createReader(new StringReader(text))) {
             return reader.readObject();
@@ -396,12 +454,10 @@ public class RdfConversionService {
         return options;
     }
 
-    private String absoluteIri(String value, String label) throws ConversionInputException {
+    private String absoluteIri(@Nullable String value, String label) throws ConversionInputException {
         try {
-            if (!nonblank(value)) throw new IllegalArgumentException();
-            URI iri = URI.create(value.trim());
-            if (!iri.isAbsolute() || iri.getFragment() != null && "Basis-IRI".equals(label)) throw new IllegalArgumentException();
-            return iri.toString();
+            if (value == null || value.isBlank()) throw new IllegalArgumentException();
+            return RdfInputIri.absolute(value, "Basis-IRI".equals(label));
         } catch (IllegalArgumentException ex) {
             throw new ConversionInputException("baseIri", label + " muss eine gültige absolute IRI sein" + ("Basis-IRI".equals(label) ? " (ohne Fragment)." : "."));
         }
@@ -413,8 +469,8 @@ public class RdfConversionService {
         return out.toString(StandardCharsets.UTF_8);
     }
 
-    private List<ConversionIssue> xmlOptionsErrors(ConversionRequest request) {
-        List<ConversionIssue> errors = new ArrayList<>();
+    private List<@NonNull ConversionIssue> xmlOptionsErrors(ConversionRequest request) {
+        List<@NonNull ConversionIssue> errors = new ArrayList<>();
         if (request.xmlRepresentation() != null && !List.of("explicit", "typed").contains(request.xmlRepresentation())) {
             errors.add(new ConversionIssue("xmlRepresentation", "Bitte für XML typisierte Elemente oder explizites rdf:type auswählen."));
         }
@@ -543,25 +599,28 @@ public class RdfConversionService {
                         && object.get("@graph") instanceof JsonArray graph && graph.isEmpty());
     }
 
-    private ConversionResult success(String id, String name, String type, String content, boolean empty) {
+    private ConversionResult success(@NonNull String id, @NonNull String name, @NonNull String type, String content, boolean empty) {
         return new ConversionResult(id, name, type, content, content.getBytes(StandardCharsets.UTF_8).length, null, empty);
     }
 
-    private String fileName(String method, String representation) {
+    private @NonNull String fileName(String method, @Nullable String representation) {
         String suffix = representation != null && ("flattened".equals(method) || "framed".equals(method))
                 ? "-" + representation : "";
         return method + suffix + ".jsonld";
     }
 
-    private ConversionResult failed(String id, String name, String type, String error) {
+    private ConversionResult failed(@NonNull String id, @NonNull String name, @NonNull String type, String error) {
         return new ConversionResult(id, name, type, null, 0, error, false);
     }
 
-    private ConversionResponse response(List<ConversionResult> results, List<ConversionIssue> issues, String context, String frame, List<String> resources) {
-        return new ConversionResponse(List.copyOf(results), List.copyOf(issues), context, frame, resources, zip(results));
+    private @NonNull ConversionResponse response(List<ConversionResult> results, List<@NonNull ConversionIssue> issues,
+                                        @Nullable String context, @Nullable String frame, List<String> resources) {
+        return new ConversionResponse(Objects.requireNonNull(List.copyOf(results)),
+                Objects.requireNonNull(List.copyOf(issues)), context, frame, Objects.requireNonNull(resources), zip(results));
     }
 
-    private String zip(List<ConversionResult> results) {
+    /** Returns a ZIP only when at least two successful files are available. */
+    private @Nullable String zip(List<ConversionResult> results) {
         List<ConversionResult> successful = results.stream()
                 .filter(result -> result.error() == null && result.content() != null).toList();
         if (successful.size() < 2) return null;
@@ -569,7 +628,8 @@ public class RdfConversionService {
         try (ZipOutputStream zip = new ZipOutputStream(bytes, StandardCharsets.UTF_8)) {
             for (ConversionResult result : successful) {
                 zip.putNextEntry(new ZipEntry(result.fileName()));
-                zip.write(result.content().getBytes(StandardCharsets.UTF_8));
+                String content = Objects.requireNonNull(result.content(), "A successful conversion must supply content");
+                zip.write(content.getBytes(StandardCharsets.UTF_8));
                 zip.closeEntry();
             }
         } catch (IOException ex) {
@@ -578,20 +638,22 @@ public class RdfConversionService {
         return Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
-    private ConversionResponse failure(String field, String message) {
+    private @NonNull ConversionResponse failure(@NonNull String field, @NonNull String message) {
         return response(List.of(), List.of(new ConversionIssue(field, message)), null, null, List.of());
     }
 
-    private static boolean nonblank(String value) { return value != null && !value.isBlank(); }
+    private static boolean nonblank(@Nullable String value) { return value != null && !value.isBlank(); }
 
-    private static String message(Exception ex) {
+    private static @NonNull String message(Exception ex) {
         String message = ex.getMessage();
         if (message == null || message.isBlank()) message = ex.getClass().getSimpleName();
-        return message.length() > 1200 ? message.substring(0, 1200) + "…" : message;
+        return Objects.requireNonNull(message.length() > 1200 ? message.substring(0, 1200) + "…" : message);
     }
 
     private static class ConversionInputException extends Exception {
-        private final String field;
-        ConversionInputException(String field, String message) { super(message); this.field = field; }
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private final @NonNull String field;
+        ConversionInputException(@NonNull String field, @NonNull String message) { super(message); this.field = field; }
     }
 }

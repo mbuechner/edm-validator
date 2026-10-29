@@ -1,6 +1,7 @@
 package de.ddb.edmvalidator.service;
 
 import de.ddb.edmvalidator.api.ValidationResultItem;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.xml.sax.SAXParseException;
 
@@ -8,15 +9,14 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+/** Checks XML well-formedness with external DTDs, entities and XInclude disabled. */
 @Component
+@RequiredArgsConstructor
 public class XmlSyntaxValidator {
 
     private final ValidationItemFactory itemFactory;
 
-    public XmlSyntaxValidator(ValidationItemFactory itemFactory) {
-        this.itemFactory = itemFactory;
-    }
-
+    /** Reports malformed XML as a finding so the remaining validation engines can still run. */
     public ValidationResultItem validateWellFormed(byte[] xmlBytes) {
         try {
             DocumentBuilder builder = createSecureBuilder();

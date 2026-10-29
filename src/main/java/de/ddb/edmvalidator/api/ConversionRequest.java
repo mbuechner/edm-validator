@@ -1,23 +1,31 @@
 package de.ddb.edmvalidator.api;
 
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+
 import java.util.List;
 
-/** Options are shared by pasted text, uploads, and the metadata preview. */
+/**
+ * Options shared by pasted text, uploads and metadata inspection.
+ * Missing options use service defaults. {@code rdfXml} may be absent for an upload;
+ * base/document IRIs are optional when all resource IRIs are already absolute.
+ */
+@NullMarked
 public record ConversionRequest(
-        String rdfXml,
-        String baseIri,
-        String documentIri,
-        Boolean rdfXmlOutput,
-        Boolean jsonLdOutput,
-        List<String> methods,
-        String contextMode,
-        String context,
-        String frameMode,
-        String rootIri,
-        String embed,
-        String frame,
-        String representation,
-        String xmlRepresentation,
-        String xmlStructure
+        @Nullable String rdfXml,
+        @Nullable String baseIri,
+        @Nullable String documentIri,
+        @Nullable Boolean rdfXmlOutput,
+        @Nullable Boolean jsonLdOutput,
+        @Nullable List<@Nullable String> methods,
+        @Nullable String contextMode,
+        @Nullable String context,
+        @Nullable String frameMode,
+        @Nullable String rootIri,
+        @Nullable String embed,
+        @Nullable String frame,
+        @Nullable String representation,
+        @Nullable String xmlRepresentation,
+        @Nullable String xmlStructure
 ) {
 }

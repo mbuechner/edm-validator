@@ -6,26 +6,25 @@
     if (!form) return;
     const maxBytes = 1024 * 1024;
     const highlightLimit = 200_000;
-    const inputStorageKey = 'ddb-edm-converter-input-v1';
     const labels = {
         compacted: 'JSON-LD · Kompakt',
         expanded: 'JSON-LD · Expandiert'
     };
     const hints = {
-        compacted: 'Kurze Bezeichnungen aus dem Kontext. Geeignet für die meisten Anwendungen.',
-        expanded: 'Vollständige IRIs und explizite Werte. Die Ausgabe enthält keinen Kontext.'
+        compacted: 'Kurze Bezeichner mit automatisch erzeugtem Kontext.',
+        expanded: 'Vollständige IRIs und explizite Werte.'
     };
     const structureHints = {
-        standard: 'Den vollständigen RDF-Graphen ohne zusätzliche Strukturvorgaben ausgeben.',
-        flattened: 'Jede Ressource wird als eigener Knoten beschrieben. Der vollständige Graph bleibt erhalten.',
-        framed: 'Eine Wurzelressource mit eingebetteten Beziehungen. Diese Ansicht kann Teile des Graphen auslassen.'
+        standard: 'Den vollständigen RDF-Graphen ausgeben.',
+        flattened: 'Jede Ressource als eigenen Knoten ausgeben.',
+        framed: 'Eine Ressource mit ihren Verknüpfungen ausgeben.'
     };
     const xmlRepresentationHints = {
-        explicit: 'Verwendet rdf:Description und explizite rdf:type-Aussagen.',
-        typed: 'Verwendet passende RDF-Typen als XML-Elementnamen. Nicht als XML-QName darstellbare Typen bleiben als rdf:type-Aussagen erhalten.'
+        explicit: 'Ressourcen mit rdf:Description und explizitem rdf:type.',
+        typed: 'Ressourcen mit typisierten XML-Elementen; sonst explizites rdf:type.'
     };
     const xmlStructureHints = {
-        flat: 'Ressourcen stehen direkt unter rdf:RDF; Verknüpfungen verwenden rdf:resource oder rdf:nodeID.',
+        flat: 'Ressourcen direkt unter rdf:RDF auflisten.',
         nested: 'Der Writer verschachtelt Ressourcen, soweit möglich. Gemeinsam genutzte oder zyklisch verknüpfte Knoten können Referenzen bleiben.'
     };
     const editors = new Map();
@@ -33,21 +32,13 @@
     let sourceRevision = 0;
     let inspectedRevision = -1;
     let inspectingRevision = -1;
-    let sourceFile = null;
-    let documentIri = null;
-    let automaticContext = '{ "@context": {} }';
     let metadataIssues = [];
-    let effectiveFrame = null;
     let frameDraftInitialized = false;
-    let fileReadToken = 0;
-    let fileLoading = false;
     let processing = false;
     let hasResult = false;
     let convertController = null;
     let inspectController = null;
     let inspectTimer = null;
-    let inputSaveTimer = null;
-    let inputSavePending = false;
 
     const selected = name => form.querySelector('input[name="' + name + '"]:checked')?.value;
     const visible = (id, show) => byId(id)?.classList.toggle('d-none', !show);
@@ -62,53 +53,6 @@
     const xmlSummary = () => ['converterXmlRepresentation', 'converterXmlStructure']
         .map(id => byId(id).selectedOptions[0]?.textContent.trim() || '').join(' · ');
     const xmlLabel = () => 'RDF/XML · ' + xmlSummary();
-
-    function removeSavedInput() {
-        window.clearTimeout(inputSaveTimer);
-        inputSavePending = false;
-        try { localStorage.removeItem(inputStorageKey); } catch (_) { /* Storage is optional. */ }
-    }
-
-    function flushSavedInput() {
-        if (!inputSavePending) return;
-        window.clearTimeout(inputSaveTimer);
-        inputSavePending = false;
-        const rdfXml = byId('converterInput').value;
-        try {
-            if (rdfXml === '') localStorage.removeItem(inputStorageKey);
-            else localStorage.setItem(inputStorageKey, JSON.stringify({
-                rdfXml, baseIri: byId('converterBase').value, documentIri
-            }));
-        } catch (_) { /* Blocked storage or a full quota must not prevent conversion. */ }
-    }
-
-    function scheduleSaveInput() {
-        window.clearTimeout(inputSaveTimer);
-        inputSavePending = true;
-        if (byId('converterInput').value === '') flushSavedInput();
-        else inputSaveTimer = window.setTimeout(flushSavedInput, 250);
-    }
-
-    function restoreSavedInput() {
-        let saved;
-        try { saved = localStorage.getItem(inputStorageKey); } catch (_) { return; }
-        if (saved === null) return;
-        try {
-            const data = JSON.parse(saved);
-            if (!data || typeof data.rdfXml !== 'string' || data.rdfXml === '') throw new Error();
-            byId('converterInput').value = data.rdfXml;
-            byId('converterBase').value = typeof data.baseIri === 'string' ? data.baseIri : '';
-            documentIri = typeof data.documentIri === 'string' ? data.documentIri : null;
-            byId('converterSource').textContent = documentIri ? 'Dokument-IRI: ' + documentIri : 'Gespeicherte Eingabe';
-            invalidate(true, false);
-        } catch (_) { removeSavedInput(); }
-    }
-
-    function sourceText(code, text, highlight = true) {
-        const value = text || '';
-        if (code.textContent !== value) code.textContent = value;
-        if (highlight && value.length <= highlightLimit && window.Prism) Prism.highlightElement(code);
-    }
 
     function isVisible(element) {
         return !element.closest('.d-none, details:not([open])');
@@ -131,7 +75,6 @@
             const code = pre.querySelector('code');
             const large = textarea.value.length > highlightLimit;
             textarea.parentElement.classList.toggle('converter-editor-plain', large);
-            if (textarea.id === 'converterInput') visible('converterHighlightHint', large);
             const mirrored = large ? '' : textarea.value + (textarea.value.endsWith('\n') ? ' ' : '');
             if (code.textContent !== mirrored) {
                 code.textContent = mirrored;
@@ -168,15 +111,16 @@
 
     function setBusy(busy) {
         processing = busy;
-        byId('converterSubmit').disabled = busy || fileLoading;
+        byId('converterSubmit').disabled = busy;
         byId('converterSubmit').textContent = busy ? 'Wird konvertiert …' : 'Konvertieren';
         byId('converterOutputPanel').setAttribute('aria-busy', String(busy));
     }
 
     function clearErrors() {
-        for (const id of ['converterInputError', 'converterBaseError', 'converterContextError',
+        for (const id of ['converterInputError', 'converterBaseError',
             'converterFrameError', 'converterOutputError', 'converterErrors']) byId(id).textContent = '';
         visible('converterErrors', false);
+        byId('rdfXmlInput').removeAttribute('aria-invalid');
         for (const element of form.querySelectorAll('[aria-invalid]')) element.removeAttribute('aria-invalid');
     }
 
@@ -188,11 +132,11 @@
 
     function showErrors(issues, metadataOnly = false, focus = false) {
         const targets = {
-            rdfXml: ['converterInputError', 'converterInput'],
-            file: ['converterInputError', 'converterFile'],
+            rdfXml: ['converterInputError', 'rdfXmlInput'],
+            file: ['converterInputError', 'rdfXmlInput'],
             baseIri: ['converterBaseError', 'converterBase'],
             documentIri: ['converterBaseError', 'converterBase'],
-            context: ['converterContextError', selected('converterContextMode') === 'custom' ? 'converterContext' : 'converterContextAuto'],
+            context: ['converterOutputError', 'converterJsonLd'],
             frame: ['converterFrameError', selected('converterFrameMode') === 'custom' ? 'converterFrame' : 'converterRoot'],
             rootIri: ['converterFrameError', 'converterRoot'],
             embed: ['converterFrameError', 'converterEmbedOnce'],
@@ -225,44 +169,18 @@
                 host.textContent = messages.join(' ');
             }
         }
-        if (focus && first) first.focus();
+        if (focus && first) {
+            if (first.closest('#rdfSource')) window.RdfSource.reveal().then(() => first.focus());
+            else first.focus();
+        }
         return first;
     }
 
-    function contextValue() {
-        const raw = selected('converterContextMode') === 'custom' ? byId('converterContext').value : automaticContext;
-        const document = JSON.parse(raw);
-        if (!document || typeof document !== 'object' || Array.isArray(document) || !Object.hasOwn(document, '@context')) {
-            throw new Error('Ein JSON-Dokument mit oberster @context-Eigenschaft ist erforderlich.');
-        }
-        return document['@context'];
-    }
-
     function generatedFrame() {
-        const frame = { '@context': contextValue(), '@embed': selected('converterEmbed') };
+        const frame = { '@embed': selected('converterEmbed') };
         const root = byId('converterRoot').value.trim();
         if (root) frame['@id'] = root;
         return frame;
-    }
-
-    function updateFramePreview() {
-        if (!isJson() || method() !== 'framed' || !byId('converterFramePreviewDetails').open) return;
-        byId('converterFramePreviewLabel').textContent = effectiveFrame ? 'Tatsächlich verwendetes Frame' : 'Frame-Vorschau';
-        try {
-            let text = effectiveFrame;
-            if (!text) {
-                let frame;
-                if (selected('converterFrameMode') === 'custom') {
-                    frame = JSON.parse(byId('converterFrame').value);
-                    if (!frame || typeof frame !== 'object' || Array.isArray(frame)) throw new Error('Das Frame muss ein JSON-Objekt sein.');
-                    if (!Object.hasOwn(frame, '@context')) frame['@context'] = contextValue();
-                } else frame = generatedFrame();
-                text = JSON.stringify(frame, null, 2);
-            }
-            sourceText(byId('converterFramePreview'), text);
-        } catch (error) {
-            sourceText(byId('converterFramePreview'), 'Keine gültige Vorschau: ' + error.message, false);
-        }
     }
 
     function syncOptions() {
@@ -276,39 +194,27 @@
         byId('converterStructure').disabled = !json;
         byId('converterMethodHint').textContent = hints[representation()];
         byId('converterStructureHint').textContent = structureHints[structure()];
-        byId('converterMethodSummary').textContent = jsonLabel();
-        byId('converterXmlSummary').textContent = xmlSummary();
+        byId('converterOutputSummary').textContent = json ? jsonLabel() : xmlLabel();
         byId('converterXmlRepresentationHint').textContent = xmlRepresentationHints[xmlRepresentation()];
         byId('converterXmlStructureHint').textContent = xmlStructureHints[xmlStructure()];
-        visible('converterContextOptions', json && (representation() === 'compacted' || framed));
-        byId('converterContextPurpose').textContent = framed && representation() === 'expanded' ?
-            'Der Kontext interpretiert die Frame-Regeln. Die expandierte Ausgabe enthält keinen @context.' :
-            'Der Kontext legt kurze Bezeichnungen für IRIs fest und wird automatisch erzeugt.';
         visible('converterFrameOptions', framed);
-        const customContext = selected('converterContextMode') === 'custom';
-        visible('converterAutoContextBox', !customContext);
-        visible('converterCustomContextBox', customContext);
         const customFrame = selected('converterFrameMode') === 'custom';
         if (framed && customFrame && !frameDraftInitialized) {
-            try { byId('converterFrame').value = JSON.stringify(generatedFrame(), null, 2); }
-            catch (_) { byId('converterFrame').value = '{\n  "@embed": "@once"\n}'; }
+            byId('converterFrame').value = JSON.stringify(generatedFrame(), null, 2);
             frameDraftInitialized = true;
             queueEditor(byId('converterFrame'));
         }
         byId('converterFrameFields').disabled = customFrame;
         byId('converterRoot').setAttribute('aria-required', String(framed && !customFrame));
         visible('converterFrameEditorBox', customFrame);
-        for (const id of ['converterContext', 'converterFrame']) {
-            if (isVisible(byId(id))) queueEditor(byId(id));
-        }
-        updateFramePreview();
+        if (isVisible(byId('converterFrame'))) queueEditor(byId('converterFrame'));
     }
 
     function modelInput() {
         return {
-            rdfXml: byId('converterInput').value,
+            rdfXml: window.RdfSource.get().rdfXml,
             baseIri: byId('converterBase').value.trim() || null,
-            documentIri
+            documentIri: window.RdfSource.get().documentIri
         };
     }
 
@@ -320,12 +226,8 @@
         };
         const data = {
             ...input, rdfXmlOutput: false, jsonLdOutput: true,
-            methods: [method()], representation: representation()
+            methods: [method()], representation: representation(), contextMode: 'generated'
         };
-        if (representation() === 'compacted' || structure() === 'framed') {
-            data.contextMode = selected('converterContextMode');
-            if (data.contextMode === 'custom') data.context = byId('converterContext').value;
-        }
         if (structure() === 'framed') {
             data.frameMode = selected('converterFrameMode');
             if (data.frameMode === 'custom') data.frame = byId('converterFrame').value;
@@ -338,7 +240,8 @@
     }
 
     function wantsMetadata() {
-        return byId('converterAdvanced').open && isJson() && byId('converterInput').value.trim();
+        return byId('converterAdvanced').open && isJson() && structure() === 'framed'
+            && byId('rdfXmlInput').value.trim();
     }
 
     function cancelInspect() {
@@ -357,7 +260,6 @@
     function invalidate(sourceChanged = false, schedule = true) {
         revision++;
         convertController?.abort();
-        effectiveFrame = null;
         const previousResult = hasResult;
         hasResult = false;
         byId('converterResults').replaceChildren();
@@ -368,10 +270,8 @@
             sourceRevision++;
             cancelInspect();
             inspectedRevision = -1;
-            automaticContext = '{ "@context": {} }';
             metadataIssues = [];
             byId('converterResources').replaceChildren();
-            sourceText(byId('converterAutoContext'), automaticContext, false);
         } else showErrors(metadataIssues, true);
         if (previousResult) status('Eingabe oder Einstellungen geändert. Bitte erneut konvertieren.');
         else visible('converterStatus', false);
@@ -379,10 +279,6 @@
     }
 
     function updateMetadata(data) {
-        if (typeof data.autoContext === 'string') {
-            automaticContext = data.autoContext;
-            sourceText(byId('converterAutoContext'), automaticContext, byId('converterAutoContextDetails').open);
-        }
         if (Array.isArray(data.resources)) {
             byId('converterResources').replaceChildren(...data.resources.map(iri => {
                 const option = document.createElement('option');
@@ -390,20 +286,11 @@
                 return option;
             }));
         }
-        updateFramePreview();
     }
 
-    async function api(path, data, signal, upload = false) {
-        const options = { method: 'POST', signal };
-        if (upload) {
-            const body = new FormData();
-            body.append('file', sourceFile);
-            body.append('options', JSON.stringify({ ...data, rdfXml: null }));
-            options.body = body;
-        } else {
-            options.headers = { 'Content-Type': 'application/json' };
-            options.body = JSON.stringify(data);
-        }
+    async function api(path, data, signal) {
+        const options = { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data) };
         const response = await fetch('./api/convert' + path, options);
         let payload;
         try { payload = await response.json(); }
@@ -416,7 +303,7 @@
 
     async function inspect() {
         if (processing || !wantsMetadata() || inspectedRevision === sourceRevision) return;
-        if (new TextEncoder().encode(byId('converterInput').value).length > maxBytes) return;
+        if (new TextEncoder().encode(byId('rdfXmlInput').value).length > maxBytes) return;
         const version = sourceRevision;
         const controller = new AbortController();
         inspectController = controller;
@@ -459,7 +346,7 @@
         }
         source.focus();
         const range = document.createRange();
-        range.selectNodeContents(source);
+        range.selectNodeContents(source.querySelector('code') || source);
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
@@ -493,7 +380,7 @@
             save.textContent = 'Herunterladen';
             save.setAttribute('aria-label', item.fileName + ' herunterladen');
             const pre = document.createElement('pre');
-            pre.className = 'source-code converter-result-source border rounded bg-body-tertiary p-3 mb-0 overflow-auto font-monospace focus-ring';
+            pre.className = 'source-code border rounded bg-body-tertiary p-3 mb-0 overflow-auto font-monospace focus-ring';
             pre.tabIndex = 0;
             pre.setAttribute('aria-label', title.textContent + ' Quelltext (schreibgeschützt)');
             const code = document.createElement('code');
@@ -511,7 +398,7 @@
             toolbar.append(info, actions);
             article.append(toolbar);
             article.append(pre);
-            sourceText(code, item.content);
+            window.CodeView.render(pre, item.content, item.id === 'rdfxml' ? 'markup' : 'json');
             hasResult = true;
         }
         byId('converterResults').append(article);
@@ -521,7 +408,7 @@
     function checkInput(data) {
         let issue;
         if (!data.rdfXml.trim()) issue = { field: 'rdfXml', message: 'Bitte RDF/XML einfügen oder eine Datei hochladen.' };
-        else if ((sourceFile?.size || new TextEncoder().encode(data.rdfXml).length) > maxBytes) {
+        else if (new TextEncoder().encode(data.rdfXml).length > maxBytes) {
             issue = { field: 'rdfXml', message: 'Die Eingabe darf höchstens 1 MiB groß sein.' };
         } else if (data.jsonLdOutput && method() === 'framed' && data.frameMode !== 'custom' && !data.rootIri) {
             issue = { field: 'rootIri', message: 'Bitte eine Wurzelressource auswählen oder ihre absolute IRI eingeben.' };
@@ -529,51 +416,6 @@
         if (issue) { showErrors([issue], false, true); return false; }
         return true;
     }
-
-    async function decodeXmlFile(file) {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let encoding = 'utf-8';
-        if ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0x3c && bytes[1] === 0)) encoding = 'utf-16le';
-        else if ((bytes[0] === 0xfe && bytes[1] === 0xff) || (bytes[0] === 0 && bytes[1] === 0x3c)) encoding = 'utf-16be';
-        else {
-            const match = new TextDecoder('ascii').decode(bytes.slice(0, 256)).match(/^\s*<\?xml\s[^?]*encoding\s*=\s*["']([^"']+)["']/i);
-            if (match) encoding = match[1];
-        }
-        return new TextDecoder(encoding, { fatal: true }).decode(buffer)
-            .replace(/^(\s*<\?xml\s[^?]*encoding\s*=\s*)["'][^"']+["']/i, '$1"UTF-8"');
-    }
-
-    function consumeHandoff() {
-        let text;
-        try {
-            text = sessionStorage.getItem('ddb-edm-converter-handoff-v1');
-            if (text !== null) sessionStorage.removeItem('ddb-edm-converter-handoff-v1');
-        } catch (_) {
-            // Direct entry and manual input also work when browser storage is unavailable.
-            return;
-        }
-        if (text === null) return;
-        try {
-            const data = JSON.parse(text);
-            if (!data || typeof data.rdfXml !== 'string' || !data.rdfXml.trim()) throw new Error();
-            documentIri = typeof data.documentIri === 'string' ? data.documentIri : null;
-            byId('converterInput').value = data.rdfXml;
-            byId('converterBase').value = '';
-            byId('converterSource').textContent = documentIri ? 'Dokument-IRI: ' + documentIri : 'Aus der Validierung übernommen.';
-            invalidate(true);
-            scheduleSaveInput();
-            flushSavedInput();
-            queueEditor(byId('converterInput'));
-            byId('converterInput').focus();
-        } catch (_) {
-            status('Die übergebene Eingabe konnte nicht übernommen werden. Bitte RDF/XML einfügen oder eine Datei öffnen.', 'warning');
-        }
-    }
-
-    restoreSavedInput();
-    window.addEventListener('pagehide', flushSavedInput);
-    document.querySelectorAll('.navbar a').forEach(link => link.addEventListener('click', flushSavedInput));
 
     form.querySelectorAll('.converter-code-editor textarea').forEach(textarea => {
         textarea.addEventListener('input', () => queueEditor(textarea));
@@ -590,17 +432,17 @@
         queueEditor(textarea);
     });
 
+    // Every tool observes the same source; changing it invalidates stale outputs and requests.
+    let previousDocumentIri = window.RdfSource.get().documentIri;
+    window.RdfSource.subscribe(source => {
+        if (source.documentIri !== previousDocumentIri) byId('converterBase').value = '';
+        previousDocumentIri = source.documentIri;
+        invalidate(true);
+        syncOptions();
+    });
+
     form.addEventListener('input', event => {
-        if (event.target === byId('converterFile')) return;
-        const sourceChanged = event.target === byId('converterInput') || event.target === byId('converterBase');
-        if (event.target === byId('converterInput')) {
-            fileReadToken++;
-            fileLoading = false;
-            sourceFile = null;
-            byId('converterFile').value = '';
-        }
-        invalidate(sourceChanged);
-        if (sourceChanged) scheduleSaveInput();
+        invalidate(event.target === byId('converterBase'));
         syncOptions();
         if (!wantsMetadata()) cancelInspect();
     });
@@ -611,59 +453,10 @@
             scheduleInspect();
         } else cancelInspect();
     });
-    byId('converterContextDetails').addEventListener('toggle', () => {
-        if (byId('converterContextDetails').open) queueEditor(byId('converterContext'));
-    });
-    byId('converterAutoContextDetails').addEventListener('toggle', () => {
-        if (byId('converterAutoContextDetails').open) sourceText(byId('converterAutoContext'), automaticContext);
-    });
-    byId('converterFramePreviewDetails').addEventListener('toggle', updateFramePreview);
-
-    byId('converterFile').addEventListener('change', async () => {
-        const file = byId('converterFile').files[0];
-        if (!file) return;
-        const token = ++fileReadToken;
-        fileLoading = true;
-        sourceFile = null;
-        documentIri = null;
-        byId('converterInput').value = '';
-        removeSavedInput();
-        byId('converterSource').textContent = '';
-        invalidate(true, false);
-        queueEditor(byId('converterInput'));
-        if (file.size > maxBytes) {
-            fileLoading = false;
-            byId('converterFile').value = '';
-            setBusy(false);
-            showErrors([{ field: 'file', message: 'Die Datei darf höchstens 1 MiB groß sein.' }], false, true);
-            return;
-        }
-        status('Datei wird eingelesen …');
-        try {
-            const text = await decodeXmlFile(file);
-            if (token !== fileReadToken) return;
-            fileLoading = false;
-            sourceFile = file;
-            byId('converterInput').value = text;
-            byId('converterSource').textContent = file.name;
-            queueEditor(byId('converterInput'));
-            invalidate(true);
-            scheduleSaveInput();
-            flushSavedInput();
-        } catch (error) {
-            if (token !== fileReadToken) return;
-            fileLoading = false;
-            byId('converterFile').value = '';
-            setBusy(false);
-            visible('converterStatus', false);
-            showErrors([{ field: 'file', message: 'Die XML-Zeichenkodierung konnte nicht gelesen werden: ' + error.message }], false, true);
-        }
-    });
 
     form.addEventListener('submit', async event => {
         event.preventDefault();
-        if (processing || fileLoading) return;
-        flushSavedInput();
+        if (processing) return;
         clearErrors();
         const data = requestData();
         if (!checkInput(data)) return;
@@ -679,11 +472,10 @@
         byId('converterResults').replaceChildren();
         visible('converterEmptyState', false);
         try {
-            const response = await api(sourceFile ? '/upload' : '', data, controller.signal, !!sourceFile);
+            const response = await api('', data, controller.signal);
             if (revision !== version || controller.signal.aborted) return;
             inspectedRevision = sourceRevision;
             metadataIssues = (response.errors || []).filter(issue => ['rdfXml', 'file', 'baseIri', 'documentIri'].includes(issue.field));
-            effectiveFrame = response.effectiveFrame || null;
             updateMetadata(response);
             const expectedId = data.jsonLdOutput ? data.methods[0] : 'rdfxml';
             const result = (response.results || []).find(item => item.id === expectedId);
@@ -712,22 +504,16 @@
     });
 
     byId('converterReset').addEventListener('click', () => {
-        fileReadToken++;
-        fileLoading = false;
-        removeSavedInput();
+        const baseChanged = byId('converterBase').value !== '';
         form.reset();
-        sourceFile = null;
-        documentIri = null;
         frameDraftInitialized = false;
         byId('converterFrame').value = '';
-        byId('converterSource').textContent = '';
-        for (const id of ['converterAdvanced', 'converterContextDetails', 'converterAutoContextDetails', 'converterFramePreviewDetails']) byId(id).open = false;
-        invalidate(true, false);
+        for (const id of ['converterAdvanced']) byId(id).open = false;
+        invalidate(baseChanged, false);
         visible('converterStatus', false);
         form.querySelectorAll('.converter-code-editor textarea').forEach(queueEditor);
         syncOptions();
-        byId('converterInput').focus();
+        byId('converterJsonLd').focus();
     });
     syncOptions();
-    consumeHandoff();
 })();

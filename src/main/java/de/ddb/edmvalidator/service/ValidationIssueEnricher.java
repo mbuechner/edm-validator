@@ -1,11 +1,17 @@
 package de.ddb.edmvalidator.service;
 
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static java.util.Objects.requireNonNull;
+
+/** Normalizes parser messages while preserving optional source locations and original document bytes. */
 @Component
 public class ValidationIssueEnricher {
 
@@ -32,7 +38,9 @@ public class ValidationIssueEnricher {
                     "Ein Element- oder Attributname ist kein gültiger XML-Name.")
     };
 
-    public EnrichedIssue enrichIssue(String rawMessage, Integer line, Integer column, byte[] sourceBytes) {
+    /** Missing parser details remain absent; a missing message receives a readable fallback. */
+    public EnrichedIssue enrichIssue(@Nullable String rawMessage, @Nullable Integer line,
+                                     @Nullable Integer column, byte @Nullable [] sourceBytes) {
         String normalized = normalizeMessage(rawMessage);
         Integer finalLine = line;
         Integer finalColumn = column;
@@ -52,7 +60,8 @@ public class ValidationIssueEnricher {
         return new EnrichedIssue(normalized, explanation, finalLine, finalColumn, lineText);
     }
 
-    public LineCol extractLineCol(String message) {
+    /** Extracts Jena's {@code [line: ..., col: ...]} coordinates, or returns empty coordinates. */
+    public LineCol extractLineCol(@Nullable String message) {
         if (message == null) {
             return new LineCol(null, null);
         }
@@ -71,7 +80,7 @@ public class ValidationIssueEnricher {
         }
     }
 
-    private String findExplanation(String parserMessage) {
+    private @Nullable String findExplanation(String parserMessage) {
         for (ErrorHintRule rule : ERROR_HINT_RULES) {
             if (rule.matches(parserMessage)) {
                 return rule.explanation();
@@ -80,14 +89,14 @@ public class ValidationIssueEnricher {
         return null;
     }
 
-    private String normalizeMessage(String message) {
+    private @NonNull String normalizeMessage(@Nullable String message) {
         if (message == null || message.isBlank()) {
             return "Unbekannter Parserfehler";
         }
-        return message.replaceAll("\\s+", " ").trim();
+        return requireNonNull(message.replaceAll("\\s+", " ").trim());
     }
 
-    private String extractLine(byte[] contentBytes, int lineNumber) {
+    private @Nullable String extractLine(byte @Nullable [] contentBytes, int lineNumber) {
         if (lineNumber < 1 || contentBytes == null || contentBytes.length == 0) {
             return null;
         }
@@ -104,20 +113,24 @@ public class ValidationIssueEnricher {
         return line;
     }
 
+    /** A nonblank message and the source details that could actually be recovered. */
+    @NullMarked
     public record EnrichedIssue(
             String originalMessage,
-            String explanation,
-            Integer line,
-            Integer column,
-            String lineSnippet
+            @Nullable String explanation,
+            @Nullable Integer line,
+            @Nullable Integer column,
+            @Nullable String lineSnippet
     ) {
     }
 
-    public record LineCol(Integer line, Integer column) {
+    /** Optional one-based parser coordinates; no coordinate is fabricated when extraction fails. */
+    @NullMarked
+    public record LineCol(@Nullable Integer line, @Nullable Integer column) {
     }
 
     private record ErrorHintRule(Pattern pattern, String explanation) {
-        boolean matches(String message) {
+        boolean matches(@Nullable String message) {
             return message != null && pattern.matcher(message).find();
         }
     }

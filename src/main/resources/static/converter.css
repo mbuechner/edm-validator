@@ -5,11 +5,6 @@
     min-height: 150px;
 }
 
-.converter-code-editor.converter-xml-editor {
-    height: clamp(240px, 35vh, 400px);
-    min-height: 240px;
-}
-
 /* The native textarea and Prism mirror must share identical text metrics. */
 .converter-code-editor pre,
 .converter-code-editor textarea,
@@ -78,19 +73,6 @@
 
 .converter-code-editor textarea::placeholder {
     -webkit-text-fill-color: var(--bs-secondary-color, #6c757d);
-}
-
-.converter-code-editor .token {
-    background: transparent;
-}
-
-/* Bootstrap supplies overflow, typography, borders and padding for source views. */
-.converter-preview {
-    max-height: 24rem;
-}
-
-.converter-result-source {
-    max-height: 65vh;
 }
 
 @media (forced-colors: active) {

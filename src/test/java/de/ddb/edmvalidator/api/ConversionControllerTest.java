@@ -8,9 +8,12 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.riot.Lang;
 import org.apache.jena.riot.RDFDataMgr;
 import org.junit.jupiter.api.Test;
+import org.jspecify.annotations.NonNull;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.w3c.dom.Element;
 import org.xml.sax.InputSource;
@@ -19,18 +22,21 @@ import tools.jackson.databind.json.JsonMapper;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static java.util.Objects.requireNonNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ConversionControllerTest {
+    private static final @NonNull Charset UTF_8 = requireNonNull(StandardCharsets.UTF_8);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
-            new ConversionController(new RdfConversionService(), JsonMapper.builder().build())).build();
+            new ConversionController(new RdfConversionService(), requireNonNull(JsonMapper.builder().build()))).build();
 
     @Test
     void textAndEverySupportedUploadExtensionProduceTheSameRdfGraph() throws Exception {
@@ -39,11 +45,11 @@ class ConversionControllerTest {
             assertNotNull(input);
             xml = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
-        String textRequest = Json.createObjectBuilder()
-                .add("rdfXml", xml).add("rdfXmlOutput", true).add("jsonLdOutput", false).build().toString();
-        JsonObject textResponse = response(mvc.perform(post("/api/convert")
+        @NonNull String textRequest = requireNonNull(Json.createObjectBuilder()
+                .add("rdfXml", xml).add("rdfXmlOutput", true).add("jsonLdOutput", false).build().toString());
+        JsonObject textResponse = response(perform(post("/api/convert")
                         .contentType(MediaType.APPLICATION_JSON).content(textRequest))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         assertTrue(textResponse.getJsonArray("errors").isEmpty());
         String textResult = textResponse.getJsonArray("results").getJsonObject(0).getString("content");
         assertTrue(model(xml).isIsomorphicWith(model(textResult)));
@@ -51,9 +57,9 @@ class ConversionControllerTest {
         for (String extension : new String[]{"rdf", "xml", "owl"}) {
             MockMultipartFile file = new MockMultipartFile("file", "organisation." + extension,
                     "application/rdf+xml", xml.getBytes(StandardCharsets.UTF_8));
-            JsonObject uploadResponse = response(mvc.perform(multipart("/api/convert/upload").file(file)
+            JsonObject uploadResponse = response(perform(multipart("/api/convert/upload").file(file)
                             .param("options", "{\"rdfXmlOutput\":true,\"jsonLdOutput\":false}"))
-                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
             assertTrue(uploadResponse.getJsonArray("errors").isEmpty(), uploadResponse.toString());
             JsonObject result = uploadResponse.getJsonArray("results").getJsonObject(0);
             assertEquals("converted.rdf", result.getString("fileName"));
@@ -68,9 +74,9 @@ class ConversionControllerTest {
     void rdfExtensionDoesNotMakeInvalidUploadedXmlValid() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "invalid.rdf", "application/rdf+xml",
                 "<rdf:RDF>".getBytes(StandardCharsets.UTF_8));
-        JsonObject body = response(mvc.perform(multipart("/api/convert/upload").file(file)
+        JsonObject body = response(perform(multipart("/api/convert/upload").file(file)
                         .param("options", "{}"))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         assertTrue(body.getJsonArray("results").isEmpty());
         assertFalse(body.getJsonArray("errors").isEmpty());
         assertEquals("rdfXml", body.getJsonArray("errors").getJsonObject(0).getString("field"));
@@ -94,14 +100,14 @@ class ConversionControllerTest {
                 """;
         String options = Json.createObjectBuilder().add("rdfXmlOutput", true).add("jsonLdOutput", false)
                 .add("xmlRepresentation", "typed").add("xmlStructure", "flat").build().toString();
-        String pasted = Json.createObjectBuilder().add("rdfXml", xml).add("rdfXmlOutput", true).add("jsonLdOutput", false)
-                .add("xmlRepresentation", "typed").add("xmlStructure", "flat").build().toString();
-        JsonObject text = response(mvc.perform(post("/api/convert").contentType(MediaType.APPLICATION_JSON).content(pasted))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        @NonNull String pasted = requireNonNull(Json.createObjectBuilder().add("rdfXml", xml).add("rdfXmlOutput", true).add("jsonLdOutput", false)
+                .add("xmlRepresentation", "typed").add("xmlStructure", "flat").build().toString());
+        JsonObject text = response(perform(post("/api/convert").contentType(MediaType.APPLICATION_JSON).content(pasted))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         assertTypedFlatOutput(text, xml);
         MockMultipartFile file = new MockMultipartFile("file", "record.rdf", "application/rdf+xml", xml.getBytes(StandardCharsets.UTF_8));
-        JsonObject upload = response(mvc.perform(multipart("/api/convert/upload").file(file).param("options", options))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        JsonObject upload = response(perform(multipart("/api/convert/upload").file(file).param("options", options))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         assertTypedFlatOutput(upload, xml);
     }
 
@@ -112,11 +118,11 @@ class ConversionControllerTest {
                   <rdf:Description rdf:about="https://example.org/resource"><schema:name>Vorschau</schema:name></rdf:Description>
                 </rdf:RDF>
                 """;
-        String request = Json.createObjectBuilder().add("rdfXml", xml)
-                .add("rdfXmlOutput", false).add("jsonLdOutput", false).build().toString();
-        JsonObject body = response(mvc.perform(post("/api/convert/inspect")
+        @NonNull String request = requireNonNull(Json.createObjectBuilder().add("rdfXml", xml)
+                .add("rdfXmlOutput", false).add("jsonLdOutput", false).build().toString());
+        JsonObject body = response(perform(post("/api/convert/inspect")
                         .contentType(MediaType.APPLICATION_JSON).content(request))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         assertTrue(body.getJsonArray("results").isEmpty());
         assertTrue(body.getJsonArray("errors").isEmpty());
         assertEquals("https://example.org/resource", body.getJsonArray("resources").getString(0));
@@ -135,12 +141,12 @@ class ConversionControllerTest {
                 """;
         String options = Json.createObjectBuilder().add("rdfXmlOutput", true).add("jsonLdOutput", false)
                 .add("xmlRepresentation", "explicit").add("xmlStructure", "flat").build().toString();
-        String pasted = Json.createObjectBuilder(response(options)).add("rdfXml", xml).build().toString();
-        JsonObject text = response(mvc.perform(post("/api/convert").contentType(MediaType.APPLICATION_JSON).content(pasted))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        @NonNull String pasted = requireNonNull(Json.createObjectBuilder(response(options)).add("rdfXml", xml).build().toString());
+        JsonObject text = response(perform(post("/api/convert").contentType(MediaType.APPLICATION_JSON).content(pasted))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         MockMultipartFile file = new MockMultipartFile("file", "namespace.rdf", "application/rdf+xml", xml.getBytes(StandardCharsets.UTF_8));
-        JsonObject upload = response(mvc.perform(multipart("/api/convert/upload").file(file).param("options", options))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        JsonObject upload = response(perform(multipart("/api/convert/upload").file(file).param("options", options))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
         for (JsonObject body : List.of(text, upload)) {
             assertEquals(1, body.getJsonArray("results").size(), body.toString());
             JsonObject result = body.getJsonArray("results").getJsonObject(0);
@@ -164,21 +170,26 @@ class ConversionControllerTest {
     void malformedUploadOptionsAndOversizedFilesReturnStructuredErrors() throws Exception {
         MockMultipartFile small = new MockMultipartFile("file", "input.rdf", "application/rdf+xml", new byte[]{1});
         for (String options : new String[]{"{broken", "null", "[]", "\"string\"", "{} {}"}) {
-            JsonObject invalidOptions = response(mvc.perform(multipart("/api/convert/upload").file(small)
+            JsonObject invalidOptions = response(perform(multipart("/api/convert/upload").file(small)
                             .param("options", options))
-                    .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+                    .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString(UTF_8));
             assertTrue(invalidOptions.getJsonArray("results").isEmpty());
             assertFalse(invalidOptions.getJsonArray("errors").isEmpty());
             assertEquals("outputs", invalidOptions.getJsonArray("errors").getJsonObject(0).getString("field"));
         }
 
         MockMultipartFile large = new MockMultipartFile("file", "large.rdf", "application/rdf+xml", new byte[1024 * 1024 + 1]);
-        JsonObject tooLarge = response(mvc.perform(multipart("/api/convert/upload").file(large).param("options", "{}"))
-                .andExpect(status().is(413)).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        JsonObject tooLarge = response(perform(multipart("/api/convert/upload").file(large).param("options", "{}"))
+                .andExpect(status().is(413)).andReturn().getResponse().getContentAsString(UTF_8));
         assertTrue(tooLarge.getJsonArray("results").isEmpty());
         JsonObject issue = tooLarge.getJsonArray("errors").getJsonObject(0);
         assertEquals("rdfXml", issue.getString("field"));
         assertTrue(issue.getString("message").contains("1 MiB"));
+    }
+
+    /** Checks the non-annotated fluent builder at the Spring API boundary. */
+    private @NonNull ResultActions perform(RequestBuilder request) throws Exception {
+        return mvc.perform(requireNonNull(request));
     }
 
     private static JsonObject response(String json) {
