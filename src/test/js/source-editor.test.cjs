@@ -1,4 +1,4 @@
-// Optional DOM tests: npm install --no-save --prefix target/ui-check jsdom@26.1.0
+// Optional DOM tests: npm ci; npm run build
 // Run: node --test src/test/js/source-editor.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -6,18 +6,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
-try { ({ JSDOM } = require(path.join(root, 'target/ui-check/node_modules/jsdom'))); }
+try { ({ JSDOM } = require(path.join(root, 'node_modules/jsdom'))); }
 catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('Shared XML editor DOM tests', { skip: 'Install optional test tools: jsdom@26.1.0 in target/ui-check' }, () => {});
+    test('Shared XML editor DOM tests', { skip: 'Run npm ci and npm run build before DOM tests.' }, () => {});
 }
 
 if (JSDOM) {
-    const read = name => fs.readFileSync(path.join(root, 'src/main/resources/static', name), 'utf8');
+    const read = name => fs.readFileSync(path.join(root, 'target/frontend', name), 'utf8');
     const sourceScript = read('rdf-source.js');
     const codeViewScript = read('code-view.js');
     const stylesheet = read('source.css');
-    const prismScripts = ['vendor/prism-core-1.29.0.min.js', 'vendor/prism-markup-1.29.0.min.js'].map(read);
+    const prismScripts = ['vendor/prism-core.min.js', 'vendor/prism-markup.min.js'].map(read);
     const key = 'ddb-rdf-source-v1';
     const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n\t<name>München &amp; Straße</name>\n</rdf:RDF>\n';
     const settled = () => new Promise(resolve => setImmediate(resolve));
@@ -136,7 +136,7 @@ if (JSDOM) {
         Object.defineProperties(app.input, {
             clientWidth: { get: () => width }, clientHeight: { get: () => height }
         });
-        app.input.style.borderWidth = '2px';
+        app.input.style.border = '2px solid black';
         app.paint();
         app.input.scrollTop = 84;
         app.input.scrollLeft = 57;

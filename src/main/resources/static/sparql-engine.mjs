@@ -1,6 +1,6 @@
 /* Oxigraph owns RDF parsing and SPARQL semantics; this module caches one exact source. */
 async function initializeOxigraph() {
-    const oxigraph = await import('./vendor/oxigraph-0.5.13/oxigraph.mjs');
+    const oxigraph = await import('./vendor/oxigraph/oxigraph.mjs');
     await oxigraph.default();
     return oxigraph;
 }

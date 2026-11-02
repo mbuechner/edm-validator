@@ -5,14 +5,24 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '../../..');
-const assets = path.join(root, 'src/main/resources/static');
+const assets = path.join(root, 'target/frontend');
 const context = vm.createContext({ window: {} });
 let THREE;
 
 test.before(async () => {
-    const source = fs.readFileSync(path.join(assets, 'vendor/three-core-0.183.2.min.js'), 'utf8');
-    THREE = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+    const { JSDOM } = require(path.join(root, 'node_modules/jsdom'));
+    const dom = new JSDOM('<!doctype html>');
+    globalThis.window = dom.window;
+    globalThis.document = dom.window.document;
+    try {
+        ({ THREE } = await import(pathToFileURL(path.join(assets, 'vendor/graph.mjs')).href));
+    } finally {
+        delete globalThis.window;
+        delete globalThis.document;
+        dom.window.close();
+    }
     for (const name of ['graph-fit.js', 'graph-nodes.js']) {
         vm.runInContext(fs.readFileSync(path.join(assets, name), 'utf8'), context, { filename: name });
     }
@@ -197,4 +207,77 @@ test('the largest degree-scaled meshes remain inside the fitted camera in both v
     for (const [width, height] of [[1100, 620], [320, 800]]) {
         assertFits(nodes, { width, height, padding: 32 }, factory.radius);
     }
+});
+
+test('rotation-safe overviews retain every real mesh and padding throughout yaw, tilt and camera roll', () => {
+    const factory = context.window.RdfGraphNodes.createFactory(THREE);
+    const positions = [[10, 50, -2300], [30, -90, 1900], [440, 720, -140],
+        [-180, -500, 310], [170, 220, -900], [-50, 80, 1100]];
+    const nodes = categoryNodes(1e6).map((node, index) => ({ ...node,
+        x: positions[index][0] + 1300, y: positions[index][1] - 850, z: positions[index][2] + 490 }));
+    const vertices = [];
+    for (const node of nodes) {
+        const mesh = factory.create(node);
+        mesh.position.set(node.x, node.y, node.z);
+        mesh.updateMatrixWorld(true);
+        mesh.traverse(object => {
+            const positions = object.geometry?.getAttribute('position');
+            if (!positions) return;
+            for (let index = 0; index < positions.count; index++) {
+                vertices.push(new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld));
+            }
+        });
+    }
+    for (const viewport of [
+        { width: 1100, height: 420, padding: 40, fov: 50, zoom: 1, near: 0.1 },
+        { width: 260, height: 900, padding: 34, fov: 34, zoom: 1.8, near: 25 },
+        { width: 1200, height: 260, padding: 25, fov: 100, zoom: 0.65, near: 5000 }
+    ]) {
+        const fit = context.window.RdfGraphFit.calculate(nodes, { ...viewport, rotationSafe: true }, factory.radius);
+        assert.ok(fit);
+        const target = new THREE.Vector3(fit.target.x, fit.target.y, fit.target.z);
+        const distance = new THREE.Vector3(fit.position.x, fit.position.y, fit.position.z).distanceTo(target);
+        const camera = new THREE.PerspectiveCamera(viewport.fov, viewport.width / viewport.height, fit.near, fit.far);
+        camera.zoom = viewport.zoom;
+        camera.updateProjectionMatrix();
+        for (const pitch of [-Math.PI / 3, 0, Math.PI / 4]) {
+            for (const yaw of [0, Math.PI / 6, Math.PI / 2, Math.PI, Math.PI * 1.5, Math.PI * 1.9]) {
+                for (const up of [[0, 1, 0], [0.8, 0.3, -0.4]]) {
+                    const offset = new THREE.Vector3(0, 0, distance)
+                        .applyEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+                    camera.position.copy(target).add(offset);
+                    camera.up.set(...up);
+                    camera.lookAt(target);
+                    camera.updateMatrixWorld(true);
+                    for (const vertex of vertices) {
+                        const projected = vertex.clone().project(camera);
+                        const x = (projected.x + 1) * viewport.width / 2;
+                        const y = (1 - projected.y) * viewport.height / 2;
+                        assert.ok(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(projected.z));
+                        assert.ok(x >= viewport.padding - 1e-6 && x <= viewport.width - viewport.padding + 1e-6,
+                            `mesh stays inside horizontal padding at yaw ${yaw}, pitch ${pitch}, ${viewport.width}x${viewport.height}`);
+                        assert.ok(y >= viewport.padding - 1e-6 && y <= viewport.height - viewport.padding + 1e-6,
+                            `mesh stays inside vertical padding at yaw ${yaw}, pitch ${pitch}, ${viewport.width}x${viewport.height}`);
+                        assert.ok(projected.z > -1 && projected.z < 1, 'all mesh depths stay between near and far clipping planes');
+                    }
+                }
+            }
+        }
+    }
+});
+
+test('rotation-safe fitting avoids empty bounding-box corners and evaluates each shape radius only once', () => {
+    const nodes = [[1000, 0, 0], [-1000, 0, 0], [0, 1000, 0],
+        [0, -1000, 0], [0, 0, 1000], [0, 0, -1000]].map(([x, y, z]) => ({ x, y, z }));
+    let radiusCalls = 0;
+    const fit = context.window.RdfGraphFit.calculate(nodes,
+        { width: 600, height: 600, fov: 90, padding: 0, rotationSafe: true }, () => { radiusCalls++; return 0; });
+    assert.ok(fit);
+    assert.equal(radiusCalls, nodes.length);
+    assert.ok(fit.position.z > 1400 && fit.position.z < 1600,
+        'a sparse cross is framed by its occupied sphere instead of the much larger empty box corners');
+    const point = context.window.RdfGraphFit.calculate([{ x: 4, y: -3, z: 2 }],
+        { width: 600, height: 400, near: 20, rotationSafe: true });
+    assert.ok(point);
+    assert.ok(point.position.z - point.target.z > point.near, 'a zero-radius graph still clears the near plane');
 });

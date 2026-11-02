@@ -8,6 +8,15 @@ der Deutschen Digitalen Bibliothek auf Basis von Spring Boot.
 - Java 25
 - Maven 3.9+
 
+Maven installiert Node.js `24.19.0` und npm `12.2.1` lokal unter `target/`.
+Alle JavaScript-Bibliotheken werden über die projektweiten `package.json` und
+`package-lock.json` verwaltet. In `generate-resources` führt Maven `npm ci` und
+`npm run build` aus. Die Browser-Dateien entstehen unter `target/frontend/` und
+werden in das JAR übernommen; heruntergeladene Bibliotheken sind nicht im
+Quellverzeichnis versioniert. Eine globale Node-Installation ist für Maven und
+den Docker-Build nicht nötig. Der erste Build benötigt Zugriff auf die Maven-,
+Node- und npm-Paketquellen.
+
 Lombok erzeugt die reinen Injection-Konstruktoren und Logger. Seine Version wird
 von Spring Boot verwaltet; der Annotation Processor ist für Java 25 ausdrücklich
 im Maven-Compiler konfiguriert. Lombok wird nicht in das ausführbare JAR gepackt.
@@ -236,7 +245,21 @@ Unbeleuchtete Materialien erhalten die Farben unabhängig von Licht und Drehung.
   Ansicht verwendet. Escape oder **Vollbild beenden** stellt die Seite wieder her.
 - Die Ansicht startet für jedes Dokument mit dem gesamten geladenen Graphen,
   ohne vorausgewählten Knoten. **Gesamtansicht** hebt einen späteren Fokus auf
-  und passt die Kamera erneut an alle Knoten an.
+  und passt die Kamera erneut an alle Knoten an. Der automatische Kameraabstand
+  wird aus Knotenpositionen, Symbolradien, Zeichenfläche und Sichtwinkel berechnet.
+  Ein kleiner Sicherheitsrand berücksichtigt auch die folgende Drehung, damit
+  alle Knoten sichtbar bleiben.
+- Sobald die Gesamtansicht geladen ist, dreht sie sich automatisch um den
+  aktuellen Blickpunkt (zehn Grad pro Sekunde, eine Umdrehung in 36 Sekunden).
+  Zoom und Blickpunkt bleiben dabei erhalten. Mausbewegungen und das Überfahren
+  von Knoten oder Verbindungen lassen die Drehung weiterlaufen. Ziehen, Scrollen,
+  Klicks sowie Eingaben in der Suche und Tastaturbedienung pausieren sie. Nach drei
+  Sekunden ohne weitere Bedienung startet die Drehung automatisch wieder, auch
+  wenn ein Suchfeld oder eine Schaltfläche noch den Fokus hat. Ein Start-/Stopp-Button
+  ist nicht nötig. Der Autostart gilt auch bei reduzierter Bewegung in den
+  Systemeinstellungen. Bei verborgenem Graphen oder Browser-Tab pausiert die Drehung.
+  Der kurze Status unter der Werkzeugleiste zeigt, ob die Ansicht dreht, auf
+  Inaktivität wartet oder wegen Bedienung oder fehlender Sichtbarkeit pausiert.
 - Die **Suche** findet Knoten nach Bezeichnung, IRI oder Klasse.
   Ein Klick hebt den Knoten hervor und zeigt die Beziehungen im Detailbereich.
   Die Zoomstufe und Kameraposition bleiben bei jeder Knotenauswahl unverändert,
@@ -246,8 +269,8 @@ Unbeleuchtete Materialien erhalten die Farben unabhängig von Licht und Drehung.
 - **Beschriftungen** ist der einzige Darstellungsschalter und startet
   ausgeschaltet. Eingeschaltet werden wenige, kollisionsgeprüfte Labels gezeigt;
   sie fangen keine Klicks ab. Details bleiben im Seitenbereich lesbar.
-- Die Darstellung verwendet feste, ruhige Vorgaben ohne Filter- oder
-  Animationskonfiguration und ohne automatische Kamerafahrten.
+- Die Darstellung verwendet feste, ruhige Vorgaben ohne zusätzliche Filter- oder
+  Animationskonfiguration. Eine Knotenauswahl löst keine Kamerafahrt aus.
 
 Selten benötigte Funktionen bleiben verfügbar, ohne den normalen Ablauf zu
 überladen: Das Europeana-Profil liegt bei der gemeinsamen Eingabe unter
@@ -265,9 +288,14 @@ HTML aus. Darstellung und Interaktion liegen in `graph.js` und `graph.css`,
 die Symbolformen in `graph-nodes.js`. Die Anfangssimulation wird vor der Anzeige
 vorbereitet; `graph-fit.js` berechnet die Perspektive aus allen Knotenpositionen
 einschließlich der gesamten Formradien und des sichtbaren Bildrands.
-Die Bibliothek `3d-force-graph` ist auf Version `1.80.0` festgelegt und liegt mit
-dem passenden Three.js-Kern `0.183.2` lokal unter `static/vendor/`, einschließlich
-der Lizenzen. Beide Bibliotheken werden nur für eine geladene Graphansicht benötigt.
+Die npm-Abhängigkeiten `3d-force-graph` und Three.js werden als gemeinsames
+ESM-Bundle gebaut. Ihre Versionen sind in `package.json` und im Lockfile festgelegt.
+Renderer, Maussteuerung und Knotensymbole verwenden dieselbe Three.js-Instanz;
+ein zweiter Three.js-Import wird nicht benötigt. Das Bundle wird nur für eine
+geladene Graphansicht importiert, bei einem Ladefehler kann erneut versucht werden.
+Das Lockfile legt auch die transitiven Abhängigkeiten fest. Browser-Dateien,
+Herkunftsmanifeste und Original-Lizenzen entstehen beim Build unter
+`target/frontend/vendor/`. Der Build ist unter `tools/frontend/` beschrieben.
 
 ## Query
 
@@ -329,14 +357,15 @@ Datierungen und Abmessungen. Metadatenrechte werden anhand der ausgewählten
 Datensatz-ID zugeordnet; Rechte eines anderen Metadatensatzes werden nicht
 übernommen. Fehlende Angaben ergänzt die JSON-Ausgabe weiterhin mit `""`.
 
-ES-Modul und WASM stammen aus dem geprüften npm-Paket `oxigraph@0.5.13` und liegen
-mit beiden Lizenzen lokal unter `static/vendor/oxigraph-0.5.13/`. Das offizielle
-`web.js` ist bytegleich als `oxigraph.mjs` abgelegt. Maven übernimmt die Dateien
-als statische Ressourcen; ein zusätzlicher JavaScript-Build ist nicht erforderlich.
+ES-Modul und WASM werden aus dem npm-Paket `oxigraph@0.5.13` bezogen und beim Build
+mit beiden Lizenzen unter `target/frontend/vendor/oxigraph/` erzeugt. Das
+offizielle `web.js` wird bytegleich als `oxigraph.mjs` übernommen. Modul und WASM
+bleiben nebeneinander, damit der Browser die WASM-Datei relativ zum Modul lädt.
 Der Server liefert WASM als `application/wasm` und komprimiert es bei Bedarf.
 RDFLib wurde entfernt; N3 und Comunica gehörten nicht zu dieser Anwendung.
-Der nur für diesen Kompatibilitätsfall nachgeladene SAX-Parser liegt mit
-Quellnachweisen und Lizenzen unter `static/vendor/saxes-6.0.0/`.
+Der nur für diesen Kompatibilitätsfall nachgeladene SAX-Parser wird aus
+`saxes@6.0.0` einschließlich `xmlchars` als Browser-Modul gebaut; Quellnachweis und
+Lizenzen liegen daneben unter `target/frontend/vendor/saxes/`.
 
 Die Tests verwenden das echte mitgelieferte WASM, einschließlich einer Ausführung
 in einem separaten Worker-Thread. Die Portal-Fixture unter
@@ -558,8 +587,10 @@ noch heruntergeladen oder von Screenreadern vorgelesen. Der Ausgabeinhalt bleibt
 einschließlich Leerzeilen, Zeilenenden und Sonderzeichen unverändert. Bei sehr
 langen Ausgaben werden nur die gerade sichtbaren Zeilennummern aufgebaut.
 
-Prism `1.29.0` wird mit XML- und JSON-Grammatik lokal unter `static/vendor/`
-ausgeliefert; die MIT-Lizenz liegt daneben in `PRISM-LICENSE.txt`.
+Prism wird mit XML- und JSON-Grammatik aus dem npm-Paket `prismjs`
+übernommen; die MIT-Lizenz liegt im Build daneben in `PRISM-LICENSE.txt`.
+Bootstrap wird ebenfalls über npm installiert und lokal ausgeliefert.
+Für diese Bibliotheken sind keine CDN-Aufrufe erforderlich.
 Die Integration verwendet die öffentlichen
 [Prism-APIs](https://prismjs.com/extending.html#api).
 `code-view.js` und `code-view.css` übernehmen die nummerierten Ausgaben,
@@ -619,19 +650,30 @@ Fachliche Tests ausführen:
 mvn test
 ```
 
-Optionale Frontend-Regressionstests (Node.js; Testabhängigkeiten bleiben unter
-dem ignorierten `target/`):
+Frontend-Regressionstests mit lokal installiertem Node.js (22 ab `22.22.2`,
+24 ab `24.15.0` oder ab Version 26):
 
 ```bash
-npm install --no-save --package-lock=false --prefix target/ui-check jsdom@26.1.0
-node --test src/test/js/*.test.cjs
+npm ci --ignore-scripts
+npm test
 ```
 
-Diese DOM-Tests prüfen unter anderem die gemeinsamen Eingaben und Seitenwechsel,
+`npm test` baut zuerst die Browser-Dateien und prüft anschließend diese erzeugte
+Fassung. `node_modules/` und die Build-Ausgaben sind von Git ausgeschlossen.
+Die DOM-Tests prüfen unter anderem die gemeinsamen Eingaben und Seitenwechsel,
 unabhängige Graph-/Query-Aufrufe, die exklusive Formatauswahl, identische
 Inhalte in Vorschau, Zwischenablage und Download, die Upload-Kodierung,
 Frame-Entwürfe, bedarfsgerechte Vorschau-Anfragen und den Schutz vor veralteten
 Antworten. Eine visuelle Browserprüfung ersetzen sie nicht.
+
+Der zusätzliche Graph-Browsertest prüft den echten WebGL-Renderer mit der
+unveränderten Systemeinstellung und mit reduzierter Bewegung, den automatischen
+Start und Wiederanlauf sowie die Abwesenheit von Debug-Logs. Er benötigt Chrome
+oder einen Browserpfad in `GRAPH_BROWSER_EXECUTABLE`:
+
+```bash
+npm run test:browser
+```
 
 ## Laufzeit und Performance
 

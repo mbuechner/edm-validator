@@ -1,31 +1,44 @@
-// Optional DOM tests: npm install --no-save --prefix target/ui-check jsdom@26.1.0
+// Optional DOM tests: npm ci; npm run build
 // Run: node --test src/test/js/graph-loader.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
 try {
-    ({ JSDOM } = require(path.join(root, 'target/ui-check/node_modules/jsdom')));
+    ({ JSDOM } = require(path.join(root, 'node_modules/jsdom')));
 } catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
     test('Graph explorer DOM tests', {
-        skip: 'Install optional test tools: npm install --no-save --prefix target/ui-check jsdom@26.1.0'
+        skip: 'Run npm ci and npm run build before DOM tests.'
     }, () => {});
 }
 
 if (JSDOM) {
-    const html = fs.readFileSync(path.join(root, 'src/main/resources/static/index.html'), 'utf8');
-    const source = fs.readFileSync(path.join(root, 'src/main/resources/static/graph.js'), 'utf8');
-    const fitSource = fs.readFileSync(path.join(root, 'src/main/resources/static/graph-fit.js'), 'utf8');
-    const nodesSource = fs.readFileSync(path.join(root, 'src/main/resources/static/graph-nodes.js'), 'utf8');
-    const stylesheet = fs.readFileSync(path.join(root, 'src/main/resources/static/graph.css'), 'utf8');
-    const libraryUrl = './vendor/3d-force-graph-1.80.0.min.js';
+    const html = fs.readFileSync(path.join(root, 'target/frontend/index.html'), 'utf8');
+    const source = fs.readFileSync(path.join(root, 'target/frontend/graph.js'), 'utf8');
+    const fitSource = fs.readFileSync(path.join(root, 'target/frontend/graph-fit.js'), 'utf8');
+    const nodesSource = fs.readFileSync(path.join(root, 'target/frontend/graph-nodes.js'), 'utf8');
+    const stylesheet = fs.readFileSync(path.join(root, 'target/frontend/graph.css'), 'utf8');
+    const libraryUrl = './vendor/graph.mjs';
     let THREE;
     test.before(async () => {
-        const source = fs.readFileSync(path.join(root, 'src/main/resources/static/vendor/three-core-0.183.2.min.js'), 'utf8');
-        THREE = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+        const dom = new JSDOM('<!doctype html>');
+        const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+        const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+        globalThis.window = dom.window;
+        globalThis.document = dom.window.document;
+        try {
+            ({ THREE } = await import(pathToFileURL(path.join(root, 'target/frontend/vendor/graph.mjs')).href));
+        } finally {
+            if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+            else delete globalThis.window;
+            if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+            else delete globalThis.document;
+            dom.window.close();
+        }
     });
     function graphData(prefix = 'https://example.org') {
         return {
@@ -50,6 +63,9 @@ if (JSDOM) {
         const dom = new JSDOM(html, { url: 'https://validator.example/', runScripts: 'outside-only' });
         const { window } = dom;
         const document = window.document;
+        const outsideFocus = document.createElement('button');
+        outsideFocus.textContent = 'Außerhalb des Explorers';
+        document.body.append(outsideFocus);
         const style = document.createElement('style');
         style.textContent = stylesheet;
         document.head.append(style);
@@ -65,7 +81,15 @@ if (JSDOM) {
         let fullscreenElement = null;
         let enterCount = 0;
         let exitCount = 0;
+        let now = 0;
+        let timerId = 0;
+        let documentHidden = false;
+        let documentFocused = true;
+        let motionReduced = reducedMotion;
+        let failNextRender = false;
+        const timers = new Map();
         const controlEvents = new Map();
+        const controlListeners = new Map();
         const camera = new THREE.PerspectiveCamera(50, size.width / size.height, 0.1, 10000);
         camera.position.set(0, 0, 300);
         let zoomMomentum = 0;
@@ -86,8 +110,12 @@ if (JSDOM) {
                 zoomMomentum = delta;
                 this.update();
             },
-            addEventListener(name, handler) { controlEvents.set(name, handler); },
-            removeEventListener() {}
+            addEventListener(name, handler) {
+                if (!controlListeners.has(name)) controlListeners.set(name, new Set());
+                controlListeners.get(name).add(handler);
+                controlEvents.set(name, (...args) => [...controlListeners.get(name)].forEach(callback => callback(...args)));
+            },
+            removeEventListener(name, handler) { controlListeners.get(name)?.delete(handler); }
         };
         controls.update();
         const renderer = {
@@ -117,6 +145,7 @@ if (JSDOM) {
                 calls.push({ method: property, args });
                 if (args.length) settings.set(property, args[0]);
                 if (property === 'graphData') {
+                    if (failNextRender) { failNextRender = false; throw new Error('WebGL scene rejected new graph data'); }
                     currentData = args[0];
                     currentData.nodes.forEach((node, index) => {
                         node.x ??= index * 25 + 10;
@@ -134,7 +163,24 @@ if (JSDOM) {
                 return graph;
             };
         } });
-        window.matchMedia = () => ({ matches: reducedMotion, addEventListener() {}, removeEventListener() {} });
+        const motionPreference = new window.EventTarget();
+        Object.defineProperty(motionPreference, 'matches', { get: () => motionReduced });
+        motionPreference.addListener = callback => motionPreference.addEventListener('change', callback);
+        motionPreference.removeListener = callback => motionPreference.removeEventListener('change', callback);
+        window.matchMedia = () => motionPreference;
+        Object.defineProperty(window.performance, 'now', { value: () => now, configurable: true });
+        window.Date.now = () => now;
+        Object.defineProperty(document, 'hidden', { get: () => documentHidden, configurable: true });
+        Object.defineProperty(document, 'visibilityState', { get: () => documentHidden ? 'hidden' : 'visible', configurable: true });
+        document.hasFocus = () => documentFocused;
+        window.addEventListener('blur', () => { documentFocused = false; });
+        window.addEventListener('focus', () => { documentFocused = true; });
+        window.setTimeout = (callback, delay = 0, ...args) => {
+            const id = ++timerId;
+            timers.set(id, { callback, args, due: now + Math.max(0, Number(delay) || 0) });
+            return id;
+        };
+        window.clearTimeout = id => timers.delete(id);
         window.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
         window.cancelAnimationFrame = id => frames.delete(id);
         window.ResizeObserver = class {
@@ -167,27 +213,67 @@ if (JSDOM) {
         window.eval(fitSource);
         window.eval(nodesSource);
         const nodeFactory = window.RdfGraphNodes.createFactory(THREE);
-        window.RdfGraphNodes = { ...window.RdfGraphNodes, load: async () => nodeFactory };
+        let pendingModule = null;
+        let moduleLoaded = false;
+        let loadAttempts = 0;
+        const module = { createGraph: () => () => graph, nodeFactory };
+        const loadModule = () => {
+            if (moduleLoaded) return Promise.resolve(module);
+            if (!pendingModule) {
+                loadAttempts++;
+                let resolve;
+                let reject;
+                const promise = new Promise((done, failed) => { resolve = done; reject = failed; });
+                pendingModule = { promise, resolve, reject };
+            }
+            return pendingModule.promise;
+        };
+        window.RdfGraphNodes = { ...window.RdfGraphNodes, load: loadModule };
         window.eval(source);
         const explorer = window.RdfGraphExplorer;
-        const scripts = () => [...document.querySelectorAll(`script[src="${libraryUrl}"]`)];
         const provideLibrary = () => {
-            window.ForceGraph3D = () => () => graph;
-            const script = scripts()[0];
-            if (script) script.dispatchEvent(new window.Event('load'));
+            moduleLoaded = true;
+            pendingModule?.resolve(module);
+            pendingModule = null;
         };
-        const flushFrames = () => {
-            for (let count = 0; frames.size; count++) {
-                assert.ok(count < 100, 'graph updates must not create an unbounded animation-frame loop');
-                const pending = [...frames];
-                frames.clear();
-                pending.forEach(([, callback]) => callback(0));
+        const rejectLibrary = () => {
+            pendingModule?.reject(new Error('Graph module could not be loaded'));
+            pendingModule = null;
+        };
+        const advanceTime = milliseconds => {
+            assert.ok(Number.isFinite(milliseconds) && milliseconds >= 0);
+            const end = now + milliseconds;
+            for (let count = 0; ; count++) {
+                const next = [...timers].filter(([, timer]) => timer.due <= end)
+                    .sort((a, b) => a[1].due - b[1].due || a[0] - b[0])[0];
+                if (!next) break;
+                assert.ok(count < 1000, 'timer callbacks must not reschedule an endless immediate loop');
+                const [id, timer] = next;
+                timers.delete(id);
+                now = timer.due;
+                timer.callback(...timer.args);
             }
+            now = end;
         };
-        const flushFrame = () => {
+        const flushFrame = (elapsed = 0) => {
+            advanceTime(elapsed);
             const pending = [...frames];
             frames.clear();
-            pending.forEach(([, callback]) => callback(0));
+            pending.forEach(([, callback]) => callback(now));
+        };
+        // Idle orbiting legitimately schedules another frame. Drain setup work without following it forever.
+        const flushFrames = (limit = 20) => {
+            for (let count = 0; frames.size && count < limit; count++) flushFrame();
+        };
+        const reducedMotionChange = matches => {
+            motionReduced = matches;
+            const event = new window.Event('change');
+            Object.defineProperty(event, 'matches', { value: matches });
+            motionPreference.dispatchEvent(event);
+        };
+        const visibilityChange = hidden => {
+            documentHidden = hidden;
+            document.dispatchEvent(new window.Event('visibilitychange'));
         };
         const ready = async data => {
             const pending = explorer.render(data || graphData());
@@ -201,7 +287,8 @@ if (JSDOM) {
             element.dispatchEvent(new window.Event('input', { bubbles: true }));
         };
         const cameraState = () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(),
-            target: controls.target.toArray(), near: camera.near, far: camera.far, aspect: camera.aspect });
+            target: controls.target.toArray(), up: camera.up.toArray(), near: camera.near, far: camera.far,
+            aspect: camera.aspect, zoom: camera.zoom });
         const assertOverview = () => {
             camera.updateMatrixWorld(true);
             for (const node of currentData.nodes) {
@@ -215,21 +302,56 @@ if (JSDOM) {
             }
         };
         const buildMeshes = (count = meshBuilders.length) => meshBuilders.splice(0, count).forEach(build => build());
-        t.after(() => window.close());
-        return { window, document, explorer, graph, settings, calls, controls, controlEvents, rendered, scripts, provideLibrary,
+        t.after(() => { timers.clear(); frames.clear(); window.close(); });
+        return { window, document, explorer, graph, settings, calls, controls, controlEvents, rendered, provideLibrary, rejectLibrary,
+            loadAttempts: () => loadAttempts,
             camera, cameraState, assertOverview, nodeFactory, buildMeshes, flushFrame, flushFrames, ready, input, size, observers,
+            advanceTime, reducedMotionChange, visibilityChange, now: () => now,
+            outsideFocus,
+            canvasEnter: () => document.getElementById('rdfGraph3d').dispatchEvent(new window.Event('pointerenter')),
+            canvasLeave: () => document.getElementById('rdfGraph3d').dispatchEvent(new window.Event('pointerleave')),
+            pendingWork: () => ({ timers: timers.size, frames: frames.size }),
+            failNextRender: () => { failNextRender = true; },
             fullscreenCounts: () => ({ enterCount, exitCount }) };
     }
 
-    test('the graph library loads on demand, pins its version and shares one pending load', async t => {
+    function orbitFor(app, duration, frameInterval = 1000 / 60) {
+        const end = app.now() + duration;
+        while (app.now() < end - 1e-7) app.flushFrame(Math.min(frameInterval, end - app.now()));
+    }
+
+    function beginIdle(app) {
+        if (app.pendingWork().timers) app.advanceTime(3000);
+        app.flushFrame(); // The first idle RAF establishes its timestamp without moving the camera.
+    }
+
+    function assertAutomaticStart(app, message) {
+        const before = app.cameraState();
+        app.flushFrame();
+        app.flushFrame(20);
+        assert.notDeepEqual(app.camera.position.toArray(), before.position, message + ': rotation starts without waiting for inactivity');
+        assert.match(app.document.getElementById('graphMotionStatus').textContent, /aktiv/i);
+    }
+
+    function assertFreshIdleDelay(app, message) {
+        const before = app.cameraState();
+        app.flushFrame(2999);
+        assert.deepEqual(app.cameraState(), before, message + ': a fresh three-second quiet period is required');
+        app.flushFrame(1);
+        app.flushFrame(20);
+        assert.notDeepEqual(app.camera.position.toArray(), before.position, message + ': the orbit resumes after inactivity');
+    }
+
+    test('the shared graph module loads on demand and concurrent requests only draw the current document', async t => {
         const app = harness(t);
-        assert.equal(app.scripts().length, 0);
+        assert.equal(app.loadAttempts(), 0);
         await app.explorer.render({ graphNodes: [], graphLinks: [] });
-        assert.equal(app.scripts().length, 0);
+        assert.equal(app.loadAttempts(), 0);
         const older = app.explorer.render(graphData('https://old.example'));
         const newer = app.explorer.render(graphData('https://new.example'));
-        assert.equal(app.scripts().length, 1);
-        assert.equal(app.scripts()[0].async, true);
+        assert.equal(app.loadAttempts(), 1);
+        assert.ok(nodesSource.includes(libraryUrl), 'the node factory and renderer load the same pinned local module');
+        assert.equal(app.document.querySelectorAll('script[src*="3d-force-graph"]').length, 0, 'no second UMD/Three instance is injected');
         app.provideLibrary();
         await Promise.all([older, newer]);
         app.flushFrames();
@@ -238,7 +360,7 @@ if (JSDOM) {
         const nextDocument = graphData('https://third.example');
         await app.explorer.render(nextDocument);
         app.flushFrames();
-        assert.equal(app.scripts().length, 1, 'the loaded library is reused');
+        assert.equal(app.loadAttempts(), 1, 'the loaded shared module is reused');
         assert.ok(app.rendered.at(-1).nodes[0].id.startsWith('https://third.example'));
         assert.equal(nextDocument.graphNodes[0].x, undefined, 'renderer positions do not modify API response nodes');
     });
@@ -246,13 +368,14 @@ if (JSDOM) {
     test('a failed library load preserves the source and a later graph can retry', async t => {
         const app = harness(t);
         const failed = app.explorer.render(graphData());
-        app.scripts()[0].dispatchEvent(new app.window.Event('error'));
+        app.rejectLibrary();
         await failed;
-        assert.equal(app.scripts().length, 0);
+        assert.equal(app.loadAttempts(), 1);
         assert.match(app.document.getElementById('graphSummary').textContent, /nicht verfügbar/);
         assert.match(app.document.getElementById('graphContext').textContent, /RDF\/XML-Eingabe.*Graph anzeigen/);
         assert.equal(app.rendered.length, 0);
         await app.ready(graphData('https://retry.example'));
+        assert.equal(app.loadAttempts(), 2, 'a failed module import can be retried');
         assert.ok(app.rendered.at(-1).nodes[0].id.startsWith('https://retry.example'));
         assert.equal(app.document.getElementById('rdfGraph3d').classList.contains('d-none'), false);
     });
@@ -495,6 +618,393 @@ if (JSDOM) {
         app.assertOverview();
     });
 
+    test('idle orbit waits for a complete overview, preserves the camera target and distance, and advances by elapsed time', async t => {
+        const app = harness(t, { reducedMotion: false, deferMeshes: true });
+        await app.ready();
+        const unfinished = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), unfinished, 'pending node meshes cannot start the opening orbit');
+        app.buildMeshes();
+        app.settings.get('onEngineStop')();
+        app.flushFrames();
+        app.assertOverview();
+        app.controls.target.set(31, -12, 19);
+        app.camera.up.set(0.4, 1, 0.3).normalize();
+        const exploredOffset = new THREE.Vector3(300, 0, 400).projectOnPlane(app.camera.up).setLength(500);
+        app.camera.position.copy(app.controls.target).add(exploredOffset);
+        app.camera.zoom = 1.25;
+        app.camera.updateProjectionMatrix();
+        app.controls.update();
+        const before = app.cameraState();
+        const offset = app.camera.position.clone().sub(app.controls.target);
+        app.flushFrame();
+        const primed = app.camera.position.clone();
+        assert.deepEqual(primed.toArray(), before.position, 'starting idle motion causes no camera jump');
+        orbitFor(app, 1000);
+        const after = app.camera.position.clone().sub(app.controls.target);
+        const degrees = offset.angleTo(after) * 180 / Math.PI;
+        assert.ok(Math.abs(degrees - 10) < 0.03, `one second rotates about ten degrees, measured ${degrees}`);
+        assert.ok(Math.abs(after.length() - offset.length()) < 1e-8, 'orbiting preserves the explored camera distance');
+        assert.deepEqual(app.controls.target.toArray(), before.target);
+        assert.deepEqual(app.camera.up.toArray(), before.up, 'Trackball exploration keeps its chosen up direction');
+        assert.equal(app.camera.zoom, before.zoom);
+        assert.equal(app.camera.near, before.near);
+        assert.equal(app.camera.far, before.far);
+
+        const slowerFrames = harness(t, { reducedMotion: false });
+        await slowerFrames.ready();
+        slowerFrames.controls.target.copy(app.controls.target);
+        slowerFrames.camera.position.fromArray(before.position);
+        slowerFrames.camera.up.fromArray(before.up);
+        slowerFrames.controls.update();
+        beginIdle(slowerFrames);
+        orbitFor(slowerFrames, 1000, 1000 / 30);
+        assert.ok(slowerFrames.camera.position.distanceTo(app.camera.position) < 1e-7,
+            'camera speed depends on elapsed time rather than the number of frames');
+        const beforeDelayedFrame = app.camera.position.clone().sub(app.controls.target);
+        app.flushFrame(10000);
+        const delayedDegrees = beforeDelayedFrame.angleTo(app.camera.position.clone().sub(app.controls.target)) * 180 / Math.PI;
+        assert.ok(Math.abs(delayedDegrees - 1) < 0.01, 'a delayed frame advances at most 100 ms without a camera jump');
+    });
+
+    test('the full opening overview stays inside the viewport throughout an idle revolution', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        app.assertOverview();
+        const distance = app.camera.position.distanceTo(app.controls.target);
+        const target = app.controls.target.toArray();
+        beginIdle(app);
+        for (let eighth = 0; eighth < 8; eighth++) {
+            orbitFor(app, 4500, 100);
+            app.assertOverview();
+            assert.ok(Math.abs(app.camera.position.distanceTo(app.controls.target) - distance) < 1e-7);
+            assert.deepEqual(app.controls.target.toArray(), target);
+        }
+    });
+
+    test('late engine stops and unchanged ResizeObserver notifications cannot keep restarting idle or refit a moving camera', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        const opening = app.camera.position.clone();
+        // The published force engine emits another stop after style/accessor updates;
+        // a repeated notification is not another opening layout or user interaction.
+        for (let frame = 0; frame < 120; frame++) {
+            app.flushFrame(50);
+            if (frame % 10 === 0) app.settings.get('onEngineStop')();
+            if (frame % 20 === 0) app.observers.forEach(callback => callback([]));
+            app.flushFrames();
+        }
+        assert.ok(app.camera.position.distanceTo(opening) > 1,
+            'six seconds without interaction must rotate despite repeated native lifecycle notifications');
+        const orbit = app.cameraState();
+        app.settings.get('onEngineStop')();
+        app.flushFrames();
+        assert.deepEqual(app.cameraState(), orbit, 'a completed layout never refits a camera that is already orbiting');
+        app.assertOverview();
+    });
+
+    test('wheel, input and clicks stop idle motion and start a fresh quiet period', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        beginIdle(app);
+        app.flushFrame(20);
+        const panel = app.document.getElementById('graphPanel');
+        for (const type of ['wheel', 'input', 'click']) {
+            panel.dispatchEvent(new app.window.Event(type, { bubbles: true }));
+            assertFreshIdleDelay(app, type);
+        }
+        const beforeSelection = app.cameraState();
+        app.settings.get('onNodeClick')(app.rendered.at(-1).nodes[0]);
+        assert.deepEqual(app.cameraState(), beforeSelection, 'selecting a node never causes a camera or zoom jump');
+        assertFreshIdleDelay(app, 'node selection');
+    });
+
+    test('long Trackball gestures and pointer holds remain paused until release, including releases outside the graph', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        beginIdle(app);
+        app.flushFrame(20);
+        app.controlEvents.get('start')();
+        const gesture = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), gesture, 'a long controls gesture cannot expire through inactivity');
+        app.controlEvents.get('end')();
+        assertFreshIdleDelay(app, 'Trackball gesture end');
+
+        for (const type of ['pointerup', 'pointercancel']) {
+            app.document.getElementById('graphStage').dispatchEvent(new app.window.Event('pointerdown', { bubbles: true }));
+            app.controlEvents.get('start')();
+            const held = app.cameraState();
+            app.flushFrame(20000);
+            assert.deepEqual(app.cameraState(), held, 'holding a pointer keeps the graph still');
+            // The controls may never receive their own end event when release happens outside the canvas.
+            app.document.dispatchEvent(new app.window.Event(type, { bubbles: true }));
+            assertFreshIdleDelay(app, 'outside ' + type);
+        }
+    });
+
+    test('passive pointer activity and hover preserve the orbit, while focus and keys renew inactivity', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        beginIdle(app);
+        app.flushFrame(20);
+        const current = app.rendered.at(-1);
+        app.canvasEnter();
+        const panel = app.document.getElementById('graphPanel');
+        const canvas = app.document.getElementById('rdfGraph3d');
+        for (const target of [panel, canvas]) {
+            for (const type of ['pointerenter', 'pointermove', 'pointerleave']) {
+                const before = app.camera.position.toArray();
+                target.dispatchEvent(new app.window.Event(type, { bubbles: type === 'pointermove' }));
+                app.flushFrame(20);
+                assert.notDeepEqual(app.camera.position.toArray(), before, type + ' never interrupts a running orbit');
+                assert.match(app.document.getElementById('graphMotionStatus').textContent, /aktiv/i);
+            }
+        }
+        app.canvasEnter();
+        for (const value of [current.nodes[0], null, current.nodes[1], null]) {
+            const before = app.camera.position.toArray();
+            app.settings.get('onNodeHover')(value);
+            app.flushFrame(20);
+            assert.notDeepEqual(app.camera.position.toArray(), before, 'entering or leaving a node does not delay rotation');
+            assert.match(app.document.getElementById('graphMotionStatus').textContent, /aktiv/i);
+        }
+        assert.equal(app.settings.get('onLinkHover'), undefined, 'link hover needs no motion callback');
+        const search = app.document.getElementById('graphSearch');
+        search.focus();
+        assertFreshIdleDelay(app, 'focusing the search field');
+        assert.equal(app.document.activeElement, search, 'a retained search focus does not prevent idle rotation');
+        app.outsideFocus.focus();
+        await Promise.resolve(); // focusout schedules its check after activeElement changes.
+        assertFreshIdleDelay(app, 'leaving the search field');
+
+        app.document.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+        const button = app.document.getElementById('fullscreenGraphBtn');
+        button.focus();
+        button.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        assertFreshIdleDelay(app, 'keyboard navigation');
+        assert.equal(app.document.activeElement, button, 'retained keyboard focus does not prevent idle rotation');
+        button.dispatchEvent(new app.window.Event('pointerdown', { bubbles: true }));
+        app.document.dispatchEvent(new app.window.Event('pointerup', { bubbles: true }));
+        assert.equal(app.document.activeElement, button);
+        assertFreshIdleDelay(app, 'pointer use with a still-focused button');
+    });
+
+    test('continuous passive pointer movement cannot postpone an idle restart, and stale raycasts cannot interrupt it', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        const current = app.rendered.at(-1);
+        const opening = app.camera.position.clone();
+        const canvas = app.document.getElementById('rdfGraph3d');
+        canvas.dispatchEvent(new app.window.Event('wheel', { bubbles: true }));
+        for (let frame = 0; frame < 120; frame++) {
+            canvas.dispatchEvent(new app.window.Event('pointermove', { bubbles: true }));
+            app.settings.get('onNodeHover')(frame % 2 ? current.nodes[0] : null);
+            app.flushFrame(50);
+        }
+        assert.ok(app.camera.position.distanceTo(opening) > 1,
+            'mouse movement and changing hover targets cannot renew the inactivity timer');
+        // The native renderer retains its last raycast point when moving into the
+        // inspector or toolbar, even though this is no longer a real canvas hover.
+        app.canvasLeave();
+        app.document.getElementById('fullscreenGraphBtn').focus();
+        const leaving = app.camera.position.clone();
+        for (let frame = 0; frame < 120; frame++) {
+            app.flushFrame(50);
+            app.settings.get('onNodeHover')(current.nodes[0]);
+        }
+        assert.ok(app.camera.position.distanceTo(leaving) > 1,
+            'stale node/link raycasts outside the canvas do not cancel or renew the inactivity timer');
+        app.canvasEnter();
+        app.settings.get('onNodeHover')(current.nodes[0]);
+        const returned = app.camera.position.toArray();
+        app.flushFrame(20);
+        assert.notDeepEqual(app.camera.position.toArray(), returned, 'returning to a real hover continues the orbit');
+    });
+
+    test('a visible window may orbit after losing focus and clears interrupted pointer gestures', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        beginIdle(app);
+        app.flushFrame(20);
+        app.canvasEnter();
+        app.settings.get('onNodeHover')(app.rendered.at(-1).nodes[0]);
+        app.document.getElementById('rdfGraph3d').dispatchEvent(new app.window.Event('pointerdown', { bubbles: true }));
+        app.controlEvents.get('start')();
+        app.window.dispatchEvent(new app.window.Event('blur'));
+        assert.equal(app.document.visibilityState, 'visible');
+        assertFreshIdleDelay(app, 'visible page after DevTools/window focus changes');
+        app.visibilityChange(true);
+        const hidden = app.cameraState();
+        app.flushFrame(10000);
+        assert.deepEqual(app.cameraState(), hidden, 'losing visibility still pauses all animation');
+    });
+
+    test('window focus changes start fresh inactivity without discarding the focused page control', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        const search = app.document.getElementById('graphSearch');
+        const toolbar = app.document.getElementById('fullscreenGraphBtn');
+        for (const control of [search, toolbar]) {
+            control.focus();
+            control.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'F12', bubbles: true }));
+            assertFreshIdleDelay(app, 'a focused page control after keyboard activity');
+
+            // Browsers retain activeElement when DevTools takes window focus.
+            app.window.dispatchEvent(new app.window.Event('blur'));
+            assert.equal(app.document.activeElement, control);
+            assertFreshIdleDelay(app, 'visible graph while DevTools owns focus');
+
+            app.window.dispatchEvent(new app.window.Event('focus'));
+            assertFreshIdleDelay(app, 'returning focus to the page');
+            assert.equal(app.document.activeElement, control);
+        }
+    });
+
+    test('the requested automatic rotation runs with reduced motion and preference changes leave it uninterrupted', async t => {
+        const app = harness(t, { reducedMotion: true });
+        await app.ready();
+        assertAutomaticStart(app, 'a document opened with system reduced motion');
+        for (const preference of [false, true]) {
+            const before = app.camera.position.toArray();
+            app.reducedMotionChange(preference);
+            app.flushFrame(20);
+            assert.notDeepEqual(app.camera.position.toArray(), before, 'a system preference change cannot stop the requested rotation');
+            assert.equal(app.pendingWork().timers, 0, 'system preferences do not introduce an idle delay');
+            assert.match(app.document.getElementById('graphMotionStatus').textContent, /aktiv/i);
+        }
+        app.document.getElementById('graphPanel').dispatchEvent(new app.window.Event('wheel', { bubbles: true }));
+        const idle = app.cameraState();
+        app.flushFrame(1000);
+        app.reducedMotionChange(false);
+        app.flushFrame(1999);
+        assert.deepEqual(app.cameraState(), idle, 'the real interaction retains its full quiet period');
+        app.flushFrame(1);
+        app.flushFrame(20);
+        assert.notDeepEqual(app.camera.position.toArray(), idle.position, 'system preferences cannot postpone the original idle deadline');
+    });
+
+    test('document visibility stops the orbit and resumes only after fresh inactivity', async t => {
+        const app = harness(t);
+        await app.ready();
+        assertAutomaticStart(app, 'the visible document');
+        app.visibilityChange(true);
+        const hidden = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), hidden, 'background tabs never rotate the camera');
+        assert.deepEqual(app.pendingWork(), { timers: 0, frames: 0 });
+        app.visibilityChange(false);
+        assertFreshIdleDelay(app, 'document becomes visible');
+    });
+
+    test('a completed graph starts automatically without a rotation button', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        assert.equal(app.document.getElementById('toggleGraphRotationBtn'), null);
+        assertAutomaticStart(app, 'the initial document');
+        assert.equal(app.pendingWork().timers, 0, 'initial rotation does not need an inactivity timer');
+    });
+
+    test('the first measurable viewport fits only once and cannot replace initial autostart with an idle delay', async t => {
+        const app = harness(t, { deferMeshes: true });
+        app.size.width = 0;
+        app.size.height = 0;
+        await app.ready();
+        assert.equal(app.document.getElementById('rdfGraph3d').style.visibility, 'hidden');
+        app.size.width = 1100;
+        app.size.height = 620;
+        app.buildMeshes();
+        app.settings.get('onEngineStop')();
+        assert.equal(app.document.getElementById('rdfGraph3d').style.visibility, '');
+        assert.equal(app.pendingWork().timers, 0, 'the resize-triggered initial fit must retain its immediate start');
+        assertAutomaticStart(app, 'the first completed, measurable overview');
+        app.assertOverview();
+    });
+
+    test('continued typing renews inactivity and rotation resumes with the search still focused', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        const search = app.document.getElementById('graphSearch');
+        search.focus();
+        const paused = app.cameraState();
+        for (const value of ['a', 'ab', 'abc']) {
+            app.flushFrame(1500);
+            search.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: value.at(-1), bubbles: true }));
+            app.input('graphSearch', value);
+            assert.deepEqual(app.cameraState(), paused, 'typing keeps the graph still while input continues');
+        }
+        assertFreshIdleDelay(app, 'the last search input');
+        assert.equal(app.document.activeElement, search, 'resuming does not steal search focus');
+    });
+
+    test('motion status explains loading, automatic start, inactivity and visibility', async t => {
+        const app = harness(t, { reducedMotion: false });
+        const pending = app.explorer.render(graphData());
+        const status = app.document.getElementById('graphMotionStatus');
+        assert.match(status.textContent, /lad|vorbereit|aufbau/i);
+        app.provideLibrary();
+        await pending;
+        app.flushFrames();
+        assert.match(status.textContent, /aktiv|dreht|läuft/i);
+        app.canvasEnter();
+        app.settings.get('onNodeHover')(app.rendered.at(-1).nodes[0]);
+        assert.match(status.textContent, /aktiv/i);
+        app.canvasLeave();
+        assert.match(status.textContent, /aktiv/i);
+        app.document.getElementById('graphSearch').focus();
+        assert.match(status.textContent, /ruhe|wart|sekund/i);
+        app.outsideFocus.focus();
+        await Promise.resolve();
+        assert.match(status.textContent, /ruhe|wart|sekund/i);
+        beginIdle(app);
+        app.flushFrame(20);
+        app.visibilityChange(true);
+        assert.match(status.textContent, /sichtbar|ausgeblendet|hintergrund/i);
+        app.visibilityChange(false);
+        assert.match(status.textContent, /ruhe|wart|sekund/i);
+        beginIdle(app);
+        app.flushFrame(20);
+        assert.match(status.textContent, /aktiv|dreht|läuft/i);
+    });
+
+    test('hide, replacement, failed rendering and pagehide discard idle work for obsolete graph data', async t => {
+        const app = harness(t, { reducedMotion: false });
+        await app.ready();
+        beginIdle(app);
+        app.flushFrame(20);
+        app.explorer.hide();
+        const hidden = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), hidden);
+        assert.deepEqual(app.pendingWork(), { timers: 0, frames: 0 });
+
+        await app.ready(graphData('https://second.example'));
+        assertAutomaticStart(app, 'a newly loaded document');
+        const beforeReplacement = app.cameraState();
+        await app.explorer.render(graphData('https://replacement.example'));
+        app.advanceTime(10000);
+        assert.deepEqual(app.cameraState(), beforeReplacement, 'an obsolete orbit cannot run while new data awaits its first frame');
+        app.flushFrames();
+        app.assertOverview();
+        assertAutomaticStart(app, 'the replacement document completes its overview');
+
+        app.failNextRender();
+        await app.explorer.render(graphData('https://failed.example'));
+        app.flushFrames();
+        assert.match(app.document.getElementById('graphSummary').textContent, /nicht verfügbar/);
+        const failed = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), failed);
+        assert.deepEqual(app.pendingWork(), { timers: 0, frames: 0 });
+        await app.ready(graphData('https://retry.example'));
+        assertAutomaticStart(app, 'successful retry');
+        app.window.dispatchEvent(new app.window.Event('pagehide'));
+        const leaving = app.cameraState();
+        app.flushFrame(20000);
+        assert.deepEqual(app.cameraState(), leaving);
+        assert.deepEqual(app.pendingWork(), { timers: 0, frames: 0 });
+    });
+
     test('labels start hidden and can be removed without returning after hover, selection or resizing', async t => {
         const app = harness(t);
         await app.ready();
@@ -515,6 +1025,7 @@ if (JSDOM) {
         checkbox.dispatchEvent(new app.window.Event('change', { bubbles: true }));
         assert.equal(labels().length, 0);
         const node = app.rendered.at(-1).nodes[0];
+        app.canvasEnter();
         app.settings.get('onNodeHover')(node);
         app.settings.get('onNodeClick')(node);
         app.settings.get('onEngineTick')();
@@ -619,6 +1130,7 @@ if (JSDOM) {
         const adjacent = current.links.find(link => link.predicate === raw);
         const unrelated = current.links.find(link => link.predicate === 'related');
         app.document.getElementById('clearGraphFocusBtn').click();
+        app.canvasEnter();
         app.settings.get('onNodeHover')(selected);
         assert.ok(app.settings.get('linkWidth')(adjacent) > app.settings.get('linkWidth')(unrelated));
         app.settings.get('onNodeHover')(null);

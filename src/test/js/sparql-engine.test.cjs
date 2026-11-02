@@ -5,11 +5,11 @@ const path = require('node:path');
 const {pathToFileURL} = require('node:url');
 const {Worker} = require('node:worker_threads');
 const root = path.resolve(__dirname, '../../..');
-const assets = path.join(root, 'src/main/resources/static');
+const assets = path.join(root, 'target/frontend');
 const engineModule = import(pathToFileURL(path.join(assets, 'sparql-engine.mjs')).href);
 const workerModule = import(pathToFileURL(path.join(assets, 'sparql-worker.mjs')).href);
-const runtime = import(pathToFileURL(path.join(assets, 'vendor/oxigraph-0.5.13/oxigraph.mjs')).href).then(oxigraph => {
-    oxigraph.initSync({module: fs.readFileSync(path.join(assets, 'vendor/oxigraph-0.5.13/web_bg.wasm'))});
+const runtime = import(pathToFileURL(path.join(assets, 'vendor/oxigraph/oxigraph.mjs')).href).then(oxigraph => {
+    oxigraph.initSync({module: fs.readFileSync(path.join(assets, 'vendor/oxigraph/web_bg.wasm'))});
     return oxigraph;
 });
 const rdf = value => `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:e="urn:example:">
@@ -276,8 +276,8 @@ test('worker coalesces waiting queries without losing a pending source payload o
 
 test('the actual worker entry point queries real WASM in a separate worker thread and reuses its store', async t => {
     const workerUrl = pathToFileURL(path.join(assets, 'sparql-worker.mjs')).href;
-    const moduleUrl = pathToFileURL(path.join(assets, 'vendor/oxigraph-0.5.13/oxigraph.mjs')).href;
-    const wasmPath = path.join(assets, 'vendor/oxigraph-0.5.13/web_bg.wasm');
+    const moduleUrl = pathToFileURL(path.join(assets, 'vendor/oxigraph/oxigraph.mjs')).href;
+    const wasmPath = path.join(assets, 'vendor/oxigraph/web_bg.wasm');
     // Adapt only the browser messaging surface and preload bytes; the production entry point runs unchanged.
     const worker = new Worker(`
         const {parentPort} = require('node:worker_threads');

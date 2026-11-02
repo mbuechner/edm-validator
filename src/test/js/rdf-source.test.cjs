@@ -1,4 +1,4 @@
-// Optional DOM tests: npm install --no-save --prefix target/ui-check jsdom@26.1.0
+// Optional DOM tests: npm ci; npm run build
 // Run: node --test src/test/js/rdf-source.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -6,16 +6,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
-try { ({ JSDOM } = require(path.join(root, 'target/ui-check/node_modules/jsdom'))); }
+try { ({ JSDOM } = require(path.join(root, 'node_modules/jsdom'))); }
 catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('Shared RDF source DOM tests', { skip: 'Install optional test tools: jsdom@26.1.0 in target/ui-check' }, () => {});
+    test('Shared RDF source DOM tests', { skip: 'Run npm ci and npm run build before DOM tests.' }, () => {});
 }
 
 if (JSDOM) {
-    const sourceScript = fs.readFileSync(path.join(root, 'src/main/resources/static/rdf-source.js'), 'utf8');
-    const bootstrapFile = path.join(root, 'target/bootstrap.bundle.min.js');
-    const bootstrapScript = fs.existsSync(bootstrapFile) ? fs.readFileSync(bootstrapFile, 'utf8') : null;
+    const sourceScript = fs.readFileSync(path.join(root, 'target/frontend/rdf-source.js'), 'utf8');
+    const bootstrapFile = path.join(root, 'target/frontend/vendor/bootstrap/bootstrap.bundle.min.js');
+    const bootstrapScript = fs.readFileSync(bootstrapFile, 'utf8');
     const key = 'ddb-rdf-source-v1';
     const xml = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>';
     const plain = value => JSON.parse(JSON.stringify(value));
@@ -480,9 +480,7 @@ if (JSDOM) {
         assert.equal(app.get('rdfSourceBody').classList.contains('show'), false);
     });
 
-    test('real Bootstrap collapse handles repeated toggles and finishes reveal before source focus', {
-        skip: !bootstrapScript && 'Download Bootstrap 5.3.3 bundle to target/bootstrap.bundle.min.js for this integration check'
-    }, async t => {
+    test('real Bootstrap collapse handles repeated toggles and finishes reveal before source focus', async t => {
         const app = harness(t, { bootstrap: true,
             seed: { [key]: JSON.stringify({ rdfXml: xml, ddbUri: '', documentIri: null }) } });
         const body = app.get('rdfSourceBody');

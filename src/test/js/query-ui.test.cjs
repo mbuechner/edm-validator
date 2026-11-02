@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
-try { ({JSDOM} = require(path.join(root, 'target/ui-check/node_modules/jsdom'))); }
+try { ({JSDOM} = require(path.join(root, 'node_modules/jsdom'))); }
 catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('SPARQL query interface', {skip: 'Install optional jsdom tools.'}, () => {});
+    test('SPARQL query interface', {skip: 'Run npm ci and npm run build before DOM tests.'}, () => {});
 }
 if (JSDOM) {
-    const read = file => fs.readFileSync(path.join(root, 'src/main/resources/static', file), 'utf8');
+    const read = file => fs.readFileSync(path.join(root, 'target/frontend', file), 'utf8');
     const portal = read('queries/portal-select.rq');
     const xml = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>';
     const flush = () => new Promise(resolve => setImmediate(resolve));

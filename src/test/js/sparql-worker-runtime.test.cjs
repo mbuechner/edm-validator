@@ -6,8 +6,8 @@ const {pathToFileURL} = require('node:url');
 const {Worker} = require('node:worker_threads');
 
 const root = path.resolve(__dirname, '../../..');
-const workerUrl = pathToFileURL(path.join(root, 'src/main/resources/static/sparql-worker.mjs')).href;
-const wasmUrl = pathToFileURL(path.join(root, 'src/main/resources/static/vendor/oxigraph-0.5.13/web_bg.wasm')).href;
+const workerUrl = pathToFileURL(path.join(root, 'target/frontend/sparql-worker.mjs')).href;
+const wasmUrl = pathToFileURL(path.join(root, 'target/frontend/vendor/oxigraph/web_bg.wasm')).href;
 const source = title => ({
     rdfXml: `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="urn:example:">
   <rdf:Description rdf:about="record"><ex:title>${title}</ex:title></rdf:Description>
@@ -177,7 +177,7 @@ test('real worker load and query errors retain their IDs and recover without ret
 test('the supplied museum portal query reuses the real worker store for 100 queries and reports separate timings', async t => {
     const app = await runtime(t);
     const rdfXml = fs.readFileSync(path.join(root, 'src/test/resources/query/224IOLKFSF3WLN3FUEHIBGIVX3PRYU6I.rdf.xml'), 'utf8');
-    const query = fs.readFileSync(path.join(root, 'src/main/resources/static/queries/portal-select.rq'), 'utf8');
+    const query = fs.readFileSync(path.join(root, 'target/frontend/queries/portal-select.rq'), 'utf8');
     const sourceId = 'museum';
     const samples = [];
     for (let i = 0; i < 100; i++) {

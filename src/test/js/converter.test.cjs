@@ -1,4 +1,4 @@
-// Optional DOM tests: npm install --no-save --prefix target/ui-check jsdom@26.1.0
+// Optional DOM tests: npm ci; npm run build
 // Run: node --test src/test/js/converter.test.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -7,20 +7,20 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
 try {
-    ({ JSDOM } = require(path.join(root, 'target/ui-check/node_modules/jsdom')));
+    ({ JSDOM } = require(path.join(root, 'node_modules/jsdom')));
 } catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
     test('RDF converter DOM tests', {
-        skip: 'Install optional test tools: npm install --no-save --prefix target/ui-check jsdom@26.1.0'
+        skip: 'Run npm ci and npm run build before DOM tests.'
     }, () => {});
 }
 
 if (JSDOM) {
-    const html = fs.readFileSync(path.join(root, 'src/main/resources/static/converter.html'), 'utf8');
-    const script = fs.readFileSync(path.join(root, 'src/main/resources/static/converter.js'), 'utf8');
-    const messages = fs.readFileSync(path.join(root, 'src/main/resources/static/messages.js'), 'utf8');
+    const html = fs.readFileSync(path.join(root, 'target/frontend/converter.html'), 'utf8');
+    const script = fs.readFileSync(path.join(root, 'target/frontend/converter.js'), 'utf8');
+    const messages = fs.readFileSync(path.join(root, 'target/frontend/messages.js'), 'utf8');
     const sourceKey = 'ddb-rdf-source-v1';
-    const sourceScript = fs.readFileSync(path.join(root, 'src/main/resources/static/rdf-source.js'), 'utf8');
+    const sourceScript = fs.readFileSync(path.join(root, 'target/frontend/rdf-source.js'), 'utf8');
     const inputXml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ' +
         'xmlns:schema="http://schema.org/"><rdf:Description rdf:about="https://example.org/org">' +
@@ -121,7 +121,7 @@ if (JSDOM) {
         const localStorage = window.localStorage;
         if (sourceState) localStorage.setItem(sourceKey, JSON.stringify(sourceState));
         window.eval(messages);
-        window.eval(fs.readFileSync(path.join(root, 'src/main/resources/static/code-view.js'), 'utf8'));
+        window.eval(fs.readFileSync(path.join(root, 'target/frontend/code-view.js'), 'utf8'));
         window.eval(sourceScript);
         window.eval(script);
         t.after(async () => {
@@ -364,7 +364,7 @@ if (JSDOM) {
         const app = harness(t);
         for (const link of app.window.document.querySelectorAll('link[rel="stylesheet"][href^="./"]')) {
             const style = app.window.document.createElement('style');
-            style.textContent = fs.readFileSync(path.join(root, 'src/main/resources/static', link.getAttribute('href').slice(2)), 'utf8');
+            style.textContent = fs.readFileSync(path.join(root, 'target/frontend', link.getAttribute('href').slice(2)), 'utf8');
             app.window.document.head.append(style);
         }
         app.input('rdfXmlInput', inputXml);
@@ -582,8 +582,8 @@ if (JSDOM) {
                 error: failed ? 'JSON-LD konnte nicht erzeugt werden.' : null}]);
         }, shared);
         app.window.Prism = {manual: true};
-        for (const file of ['prism-core-1.29.0.min.js', 'prism-markup-1.29.0.min.js', 'prism-json-1.29.0.min.js']) {
-            app.window.eval(fs.readFileSync(path.join(root, 'src/main/resources/static/vendor', file), 'utf8'));
+        for (const file of ['prism-core.min.js', 'prism-markup.min.js', 'prism-json.min.js']) {
+            app.window.eval(fs.readFileSync(path.join(root, 'target/frontend/vendor', file), 'utf8'));
         }
         app.check('converterJsonLd');
         assert.match(app.get('converterOutputSummary').textContent, /benannter Graph \(Named Graph\)/);

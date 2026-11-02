@@ -2,7 +2,6 @@
 (function () {
     'use strict';
 
-    const LIBRARY_URL = './vendor/3d-force-graph-1.80.0.min.js';
     const NODE_COLORS = window.RdfGraphNodes.COLORS;
     const panel = document.getElementById('graphPanel');
     if (!panel) return;
@@ -10,7 +9,6 @@
     let graph = null;
     let nodeFactory = null;
     let state = null;
-    let libraryPromise = null;
     let revision = 0;
     let selectedId = null;
     let hoveredId = null;
@@ -19,6 +17,8 @@
     let overviewPending = false;
     let initialOverviewComplete = false;
     let currentDataReady = false;
+    let viewportWidth = 0;
+    let viewportHeight = 0;
     let createdNodes = new WeakSet();
     let resizeFrame = null;
     let expanded = false;
@@ -26,6 +26,15 @@
     let previousOverflow = '';
     let inertElements = [];
     let fullscreenRevision = 0;
+    const idleDelay = 3000;
+    const rotationSpeed = Math.PI / 18; // Ten degrees per second: one revolution in 36 seconds.
+    let rotationTimer = null;
+    let rotationFrame = null;
+    let rotationTime = null;
+    let pointerInsideCanvas = false;
+    let controlGesture = false;
+    let pageActive = true;
+    const pressedPointers = new Set();
 
     const endpoint = value => typeof value === 'object' && value ? value.id : value;
     const shorten = (value, length = 58) => value.length > length ? value.slice(0, length - 1) + '…' : value;
@@ -33,6 +42,80 @@
     const isTypeLink = link => link.predicateUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
         || (!link.predicateUri && link.predicate === 'rdf:type');
     const isLiteralLink = link => !!(state && state.nodeMap.get(endpoint(link.target))?.nodeType === 'Literal');
+
+    function rotationBlockReason() {
+        if (!graph || !state || !currentDataReady || !initialOverviewComplete) return 'Drehung ist nach dem Laden verfügbar.';
+        if (!pageActive || panel.classList.contains('d-none') || document.visibilityState !== 'visible') {
+            return 'Drehung pausiert, solange die Ansicht nicht sichtbar ist.';
+        }
+        if (controlGesture || pressedPointers.size) return 'Drehung pausiert während der Bedienung.';
+        return '';
+    }
+
+    function canRotate() {
+        return !rotationBlockReason();
+    }
+
+    function updateRotationStatus() {
+        const status = element('graphMotionStatus');
+        if (!status) return;
+        const message = rotationBlockReason() || (rotationFrame !== null ? 'Automatische Drehung aktiv.'
+            : 'Drehung startet nach drei Sekunden ohne Interaktion.');
+        if (status.textContent !== message) {
+            status.textContent = message;
+            status.title = message;
+        }
+    }
+
+    function stopRotation() {
+        window.clearTimeout(rotationTimer);
+        rotationTimer = null;
+        if (rotationFrame !== null) window.cancelAnimationFrame(rotationFrame);
+        rotationFrame = null;
+        rotationTime = null;
+        updateRotationStatus();
+    }
+
+    /** Orbit the current view, preserving its pan, distance, zoom and user-chosen up direction. */
+    function rotateIdle(timestamp) {
+        rotationFrame = null;
+        if (!canRotate()) { stopRotation(); return; }
+        if (rotationTime !== null) {
+            // A delayed frame must not turn a resumed tab into a sudden camera jump.
+            const seconds = Math.min(0.1, Math.max(0, (timestamp - rotationTime) / 1000));
+            const camera = graph.camera();
+            const controls = graph.controls();
+            if (!controls?.target) { stopRotation(); return; }
+            const offset = camera.position.clone().sub(controls.target);
+            const up = camera.up.clone().normalize();
+            camera.position.copy(offset.applyAxisAngle(up, rotationSpeed * seconds).add(controls.target));
+            camera.lookAt(controls.target);
+            controls.update();
+            camera.updateMatrixWorld(true);
+            updateLabelPositions();
+        }
+        rotationTime = timestamp;
+        rotationFrame = window.requestAnimationFrame(rotateIdle);
+    }
+
+    function startRotation() {
+        stopRotation();
+        if (canRotate()) rotationFrame = window.requestAnimationFrame(rotateIdle);
+        updateRotationStatus();
+    }
+
+    /** Only a completed, visible graph gets an idle timer; interaction cancels it immediately. */
+    function scheduleRotation() {
+        stopRotation();
+        if (!canRotate()) return;
+        rotationTimer = window.setTimeout(startRotation, idleDelay);
+    }
+
+    function endPointer(event) {
+        if (!pressedPointers.delete(event.pointerId ?? 0)) return;
+        if (!pressedPointers.size) controlGesture = false;
+        scheduleRotation();
+    }
 
     function shortId(id) {
         if (id.startsWith('literal:')) return shorten(id.slice(8));
@@ -104,39 +187,6 @@
         content.className = 'graph-tooltip';
         content.textContent = text;
         return content;
-    }
-
-    function loadLibrary() {
-        if (typeof window.ForceGraph3D === 'function') return Promise.resolve(window.ForceGraph3D);
-        if (!libraryPromise) {
-            libraryPromise = new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = LIBRARY_URL;
-                script.async = true;
-                const timeout = window.setTimeout(fail, 30000);
-                function finish() {
-                    window.clearTimeout(timeout);
-                    script.onload = null;
-                    script.onerror = null;
-                }
-                function fail() {
-                    finish();
-                    script.remove();
-                    reject(new Error('Die 3D-Ansicht konnte nicht geladen werden.'));
-                }
-                script.onload = () => {
-                    if (typeof window.ForceGraph3D !== 'function') return fail();
-                    finish();
-                    resolve(window.ForceGraph3D);
-                };
-                script.onerror = fail;
-                document.head.append(script);
-            }).catch(error => {
-                libraryPromise = null;
-                throw error;
-            });
-        }
-        return libraryPromise;
     }
 
     /** Own copies prevent the force engine's endpoint/position mutations from changing API results. */
@@ -260,6 +310,7 @@
 
     function selectNode(node) {
         if (!state || !state.visibleNodes.some(visible => visible.id === node.id)) return;
+        scheduleRotation();
         selectedId = node.id;
         hoveredId = null;
         cancelOverview();
@@ -280,6 +331,7 @@
         clearInspector();
         updateHighlight();
         renderLabels();
+        scheduleRotation();
     }
 
     function renderSearch() {
@@ -371,15 +423,19 @@
         if (bounds.width > 0 && bounds.height > 0) {
             const width = Math.floor(bounds.width);
             const height = Math.floor(bounds.height);
-            graph.width(width).height(height);
-            const renderer = graph.renderer();
-            if (renderer && typeof renderer.setSize === 'function') renderer.setSize(width, height);
-            // Renderer setters are debounced; projection must already match the measured viewport.
-            const camera = graph.camera();
-            camera.aspect = bounds.width / bounds.height;
-            camera.updateProjectionMatrix();
+            if (width !== viewportWidth || height !== viewportHeight) {
+                viewportWidth = width;
+                viewportHeight = height;
+                graph.width(width).height(height);
+                const renderer = graph.renderer();
+                if (renderer && typeof renderer.setSize === 'function') renderer.setSize(width, height);
+                // Renderer setters are debounced; projection must already match the measured viewport.
+                const camera = graph.camera();
+                camera.aspect = bounds.width / bounds.height;
+                camera.updateProjectionMatrix();
+                fitOverview();
+            }
         }
-        fitOverview();
         updateLabelPositions();
     }
 
@@ -398,15 +454,16 @@
         const bounds = element('rdfGraph3d').getBoundingClientRect();
         if (bounds.width <= 0 || bounds.height <= 0) return;
         const overlays = ['.graph-stage-top', '.graph-stage-bottom'].map(selector =>
-            panel.querySelector(selector).getBoundingClientRect().height + 24);
-        const padding = Math.min(Math.min(bounds.width, bounds.height) * 0.3, Math.max(32, ...overlays));
+            panel.querySelector(selector).getBoundingClientRect().height + 20);
+        const padding = Math.min(Math.min(bounds.width, bounds.height) * 0.3, Math.max(24, ...overlays));
         const camera = graph.camera();
         const fit = window.RdfGraphFit.calculate(state.nodes, {
-            width: bounds.width, height: bounds.height, fov: camera.fov, zoom: 1, padding
+            width: bounds.width, height: bounds.height, fov: camera.fov, zoom: 1, padding, rotationSafe: true
         }, nodeFactory.radius);
         if (!fit) return;
+        const initialFit = !initialOverviewComplete;
         const controls = graph.controls();
-        if (!initialOverviewComplete && controls && typeof controls.reset === 'function') controls.reset();
+        if (initialFit && controls && typeof controls.reset === 'function') controls.reset();
         camera.aspect = bounds.width / bounds.height;
         camera.zoom = 1;
         camera.near = fit.near;
@@ -421,13 +478,20 @@
         element('graphSummary').textContent = state.nodes.length + ' Knoten · ' + state.links.length + ' Verbindungen';
         element('rdfGraph3d').style.visibility = '';
         initialOverviewComplete = true;
+        if (initialFit) startRotation();
+        else scheduleRotation();
     }
 
     /** Node creation and synchronous warmup finish before this frame or engine-stop callback. */
     function finishInitialLayout() {
-        if (!state || !state.nodes.every(node => createdNodes.has(node))) return;
+        // Style updates can stop the native engine again after the opening layout.
+        // Only the first completion owns camera fitting and the initial automatic start.
+        if (currentDataReady || !state || !state.nodes.every(node => createdNodes.has(node))) return;
         currentDataReady = true;
         resize();
+        // resize may have completed the first fit already. A second fit would
+        // replace its immediate start with a new inactivity timer.
+        if (!initialOverviewComplete) fitOverview();
     }
 
     function resetView() {
@@ -437,6 +501,7 @@
         if (controls && typeof controls.reset === 'function') controls.reset();
         overviewPending = true;
         resize();
+        fitOverview();
     }
 
     function syncFullscreen(active) {
@@ -492,21 +557,26 @@
     }
 
     function unavailable() {
+        stopRotation();
         state = null;
         selectedId = null;
         hoveredId = null;
         overviewPending = false;
         initialOverviewComplete = false;
         currentDataReady = false;
+        controlGesture = pointerInsideCanvas = false;
+        pressedPointers.clear();
         clearInspector();
         if (element('graphLabels')) element('graphLabels').replaceChildren();
         if (graph) graph.pauseAnimation();
         element('rdfGraph3d').classList.add('d-none');
         element('graphSummary').textContent = '3D-Ansicht nicht verfügbar.';
         element('graphContext').textContent = 'Die RDF/XML-Eingabe bleibt erhalten. Klicke auf „Graph anzeigen“, um die 3D-Ansicht erneut zu laden.';
+        updateRotationStatus();
     }
 
     function hide() {
+        stopRotation();
         revision++;
         state = null;
         selectedId = null;
@@ -514,14 +584,18 @@
         overviewPending = false;
         initialOverviewComplete = false;
         currentDataReady = false;
+        controlGesture = pointerInsideCanvas = false;
+        pressedPointers.clear();
         if (expanded) exitFullscreen();
         panel.classList.add('d-none');
         element('graphSummary').textContent = 'Kein Graph geladen.';
         clearInspector();
         if (graph) graph.pauseAnimation();
+        updateRotationStatus();
     }
 
     async function render(data) {
+        stopRotation();
         const currentRevision = ++revision;
         const nodes = Array.isArray(data.graphNodes) ? data.graphNodes : [];
         const links = Array.isArray(data.graphLinks) ? data.graphLinks : [];
@@ -529,15 +603,20 @@
         if (graph) graph.pauseAnimation();
         state = null;
         currentDataReady = false;
+        controlGesture = pointerInsideCanvas = false;
+        pressedPointers.clear();
         overviewPending = false;
         initialOverviewComplete = false;
         element('rdfGraph3d').style.visibility = 'hidden';
         panel.classList.remove('d-none');
         element('graphSummary').textContent = '3D-Ansicht wird geladen …';
-        let createGraph;
-        try { [createGraph, nodeFactory] = await Promise.all([loadLibrary(), window.RdfGraphNodes.load()]); }
+        updateRotationStatus();
+        let loaded;
+        try { loaded = await window.RdfGraphNodes.load(); }
         catch (_) { if (currentRevision === revision) unavailable(); return; }
         if (currentRevision !== revision) return;
+        const createGraph = loaded.createGraph;
+        nodeFactory = loaded.nodeFactory;
         state = prepare(nodes, links);
         selectedId = null;
         hoveredId = null;
@@ -573,7 +652,11 @@
                         .linkDirectionalArrowRelPos(0.88).linkDirectionalArrowColor(linkColor)
                         .linkDirectionalParticles(0)
                         .onNodeClick(selectNode)
-                        .onNodeHover(node => { hoveredId = node && state && state.nodeMap.has(node.id) ? node.id : null; updateHighlight(); })
+                        .onNodeHover(node => {
+                            if (!pointerInsideCanvas) return;
+                            hoveredId = node && state && state.nodeMap.get(node.id) === node ? node.id : null;
+                            updateHighlight();
+                        })
                         .onBackgroundClick(clearFocus)
                         .enableNodeDrag(false)
                         .onEngineTick(updateLabelPositions)
@@ -601,7 +684,12 @@
                     if (controls) controls.staticMoving = true;
                     if (controls && typeof controls.addEventListener === 'function') {
                         controls.addEventListener('change', updateLabelPositions);
-                        controls.addEventListener('start', cancelOverview);
+                        controls.addEventListener('start', () => {
+                            controlGesture = true;
+                            cancelOverview();
+                            stopRotation();
+                        });
+                        controls.addEventListener('end', () => { controlGesture = false; scheduleRotation(); });
                     }
                 }
                 // Complete layout offscreen, then reveal only a perspective-correct full view.
@@ -622,6 +710,44 @@
     element('clearGraphFocusBtn').addEventListener('click', clearFocus);
     element('graphSearch').addEventListener('input', renderSearch);
     element('graphLabelsToggle').addEventListener('change', renderLabels);
+    // Passive pointer motion and hover keep the current orbit and idle deadline.
+    for (const name of ['wheel', 'click', 'input']) {
+        panel.addEventListener(name, scheduleRotation, { passive: true, capture: true });
+    }
+    function leaveCanvas() {
+        pointerInsideCanvas = false;
+        hoveredId = null;
+        updateHighlight();
+    }
+    const canvas = element('rdfGraph3d');
+    for (const name of ['pointerenter', 'pointermove', 'pointerdown']) {
+        canvas.addEventListener(name, () => { pointerInsideCanvas = true; }, { passive: true, capture: true });
+    }
+    // The renderer keeps its last raycast position after leaving the canvas.
+    // Ignore stale hover highlights while the pointer is over the toolbar or inspector.
+    canvas.addEventListener('pointerleave', leaveCanvas);
+    panel.addEventListener('pointerleave', leaveCanvas);
+    panel.addEventListener('pointerdown', event => {
+        pressedPointers.add(event.pointerId ?? 0);
+        stopRotation();
+    }, true);
+    panel.addEventListener('keydown', scheduleRotation, true);
+    panel.addEventListener('focusin', scheduleRotation);
+    // focusout precedes the new activeElement, including when focus leaves the whole panel.
+    panel.addEventListener('focusout', () => window.queueMicrotask(scheduleRotation));
+    panel.addEventListener('lostpointercapture', endPointer);
+    document.addEventListener('pointerup', endPointer, true);
+    document.addEventListener('pointercancel', endPointer, true);
+    document.addEventListener('visibilitychange', scheduleRotation);
+    window.addEventListener('blur', () => {
+        controlGesture = false;
+        pressedPointers.clear();
+        leaveCanvas();
+        scheduleRotation();
+    });
+    window.addEventListener('focus', scheduleRotation);
+    window.addEventListener('pagehide', () => { pageActive = false; stopRotation(); });
+    window.addEventListener('pageshow', () => { pageActive = true; scheduleRotation(); });
     window.addEventListener('resize', scheduleResize);
     if (typeof ResizeObserver === 'function') new ResizeObserver(scheduleResize).observe(element('graphStage'));
     document.addEventListener('fullscreenchange', () => {
@@ -642,4 +768,5 @@
     });
 
     window.RdfGraphExplorer = { render, hide, resetView, toggleFullscreen };
+    updateRotationStatus();
 })();

@@ -1,0 +1,28 @@
+{
+  "name": "edm-validator-frontend",
+  "version": "0.0.2",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@12.2.1",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "node tools/frontend/build.mjs",
+    "test": "npm run build && node --test src/test/js/*.test.cjs",
+    "test:browser": "npm run build && node --test src/test/js/graph-browser.test.cjs"
+  },
+  "dependencies": {
+    "3d-force-graph": "1.80.1",
+    "bootstrap": "5.3.8",
+    "oxigraph": "0.5.13",
+    "prismjs": "1.30.0",
+    "saxes": "6.0.0",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jsdom": "30.1.3",
+    "puppeteer-core": "25.16.0"
+  }
+}

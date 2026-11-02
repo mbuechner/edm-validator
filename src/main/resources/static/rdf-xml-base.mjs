@@ -1,4 +1,4 @@
-import {SaxesParser} from './vendor/saxes-6.0.0/saxes.mjs';
+import {SaxesParser} from './vendor/saxes/saxes.mjs';
 
 const XML = 'http://www.w3.org/XML/1998/namespace';
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';

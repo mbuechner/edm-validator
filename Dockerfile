@@ -2,7 +2,8 @@ FROM maven:3-eclipse-temurin-25 AS build
 
 WORKDIR /workspace
 
-COPY pom.xml ./
+COPY pom.xml package.json package-lock.json ./
+COPY tools ./tools
 COPY src ./src
 
 RUN mvn -q -DskipTests package

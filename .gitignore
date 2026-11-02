@@ -1,3 +1,4 @@
 /.vscode
 /target
 /tmp
+node_modules/

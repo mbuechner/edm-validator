@@ -5,7 +5,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const root = path.resolve(__dirname, '../../..');
-const staticRoot = path.join(root, 'src/main/resources/static');
+const staticRoot = path.join(root, 'target/frontend');
 const preset = fs.readFileSync(path.join(staticRoot, 'queries/portal-select.rq'), 'utf8');
 // Deliberately controlled test data, not the user's source record or a normalized runtime input.
 const rdfXml = fs.readFileSync(path.join(root, 'src/test/resources/query/portal-controlled.rdf.xml'), 'utf8');
@@ -22,8 +22,8 @@ const fields = [
 let wasmModule;
 
 async function harness(t) {
-    wasmModule ||= import(pathToFileURL(path.join(staticRoot, 'vendor/oxigraph-0.5.13/oxigraph.mjs')).href).then(module => {
-        module.initSync({module: fs.readFileSync(path.join(staticRoot, 'vendor/oxigraph-0.5.13/web_bg.wasm'))});
+    wasmModule ||= import(pathToFileURL(path.join(staticRoot, 'vendor/oxigraph/oxigraph.mjs')).href).then(module => {
+        module.initSync({module: fs.readFileSync(path.join(staticRoot, 'vendor/oxigraph/web_bg.wasm'))});
         return module;
     });
     const [oxigraph, {createSparqlEngine}] = await Promise.all([

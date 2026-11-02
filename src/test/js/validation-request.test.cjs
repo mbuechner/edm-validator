@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
-try { ({JSDOM} = require(path.join(root, 'target/ui-check/node_modules/jsdom'))); }
+try { ({JSDOM} = require(path.join(root, 'node_modules/jsdom'))); }
 catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('Validation request DOM tests', {skip: 'Install optional jsdom tools.'}, () => {});
+    test('Validation request DOM tests', {skip: 'Run npm ci and npm run build before DOM tests.'}, () => {});
 }
 if (JSDOM) {
-    const read = name => fs.readFileSync(path.join(root, 'src/main/resources/static', name), 'utf8');
+    const read = name => fs.readFileSync(path.join(root, 'target/frontend', name), 'utf8');
     const xml = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>';
     const result = {overallPassed: true, xmlSyntaxPassed: true, edmXsdPassed: true, rdfSyntaxPassed: true,
         shaclPassed: true, results: [], message: 'Validierung erfolgreich'};

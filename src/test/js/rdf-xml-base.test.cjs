@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {pathToFileURL} = require('node:url');
-const helper = import(pathToFileURL(path.resolve(__dirname, '../../main/resources/static/rdf-xml-base.mjs')).href);
+const helper = import(pathToFileURL(path.resolve(__dirname, '../../../target/frontend/rdf-xml-base.mjs')).href);
 
 test('relative base resolution follows RFC 3986 normal and abnormal reference vectors', async () => {
     const {resolveXmlBase} = await helper;

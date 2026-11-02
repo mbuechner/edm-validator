@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const script = fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/sparql-client.js'), 'utf8');
+const script = fs.readFileSync(path.resolve(__dirname, '../../../target/frontend/sparql-client.js'), 'utf8');
 const source = { rdfXml: '<rdf:RDF/>', baseIri: 'https://example.org/source.rdf' };
 const plain = value => JSON.parse(JSON.stringify(value));
 

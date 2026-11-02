@@ -10,7 +10,7 @@
     // Capture this script's URL while it is executing, before an asynchronous import starts.
     const scriptUrl = typeof document === 'undefined' ? null
         : document.currentScript?.src || document.baseURI;
-    let factoryPromise = null;
+    let libraryPromise = null;
 
     function category(node) {
         if (node.nodeType === 'Literal') return 'literal';
@@ -102,15 +102,29 @@
     }
 
     function load() {
-        if (!factoryPromise) {
+        if (!libraryPromise) {
             const base = scriptUrl || document.baseURI;
-            const url = new URL('./vendor/three-core-0.183.2.min.js', base).href;
-            factoryPromise = import(url).then(createFactory).catch(error => {
-                factoryPromise = null;
+            // Both the renderer and our symbols use this bundle's single Three.js
+            // module. Importing another Three build would duplicate engine state.
+            const url = new URL('./vendor/graph.mjs', base).href;
+            let timer;
+            const loading = new Promise((resolve, reject) => {
+                timer = setTimeout(() => reject(new Error(
+                    'Die Graph-Bibliothek konnte nicht innerhalb von 30 Sekunden geladen werden.'
+                )), 30000);
+                import(url).then(module => resolve(Object.freeze({
+                    createGraph: module.default,
+                    nodeFactory: createFactory(module.THREE)
+                })), reject);
+            }).finally(() => clearTimeout(timer));
+            const cached = loading.catch(error => {
+                // An import may finish after a timeout. It must never replace a retry.
+                if (libraryPromise === cached) libraryPromise = null;
                 throw error;
             });
+            libraryPromise = cached;
         }
-        return factoryPromise;
+        return libraryPromise;
     }
 
     window.RdfGraphNodes = Object.freeze({ COLORS, category, radius, createFactory, load });

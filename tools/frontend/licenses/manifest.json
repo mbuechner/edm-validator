@@ -1,0 +1,18 @@
+{
+  "saxes": {
+    "license": "ISC",
+    "directory": "saxes",
+    "source": "https://github.com/lddubeau/saxes/tree/v6.0.0",
+    "files": { "LICENSE": ["LICENSE"] }
+  },
+  "oxigraph": {
+    "license": "MIT OR Apache-2.0",
+    "directory": "oxigraph",
+    "source": "https://github.com/oxigraph/oxigraph/tree/v0.5.13",
+    "files": {
+      "LICENSE": ["LICENSE-MIT", "LICENSE-APACHE"],
+      "LICENSE-MIT": ["LICENSE-MIT"],
+      "LICENSE-APACHE": ["LICENSE-APACHE"]
+    }
+  }
+}

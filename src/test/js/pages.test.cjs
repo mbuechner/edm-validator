@@ -1,24 +1,22 @@
-// npm install --no-save --prefix target/ui-check jsdom@26.1.0
+// npm ci; npm run build
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
-try { ({ JSDOM } = require(path.join(root, 'target/ui-check/node_modules/jsdom'))); }
+try { ({ JSDOM } = require(path.join(root, 'node_modules/jsdom'))); }
 catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('Shared tool pages', {skip: 'Install optional jsdom test tools.'}, () => {});
+    test('Shared tool pages', {skip: 'Run npm ci and npm run build before DOM tests.'}, () => {});
 }
 
 if (JSDOM) {
-    const read = name => fs.readFileSync(path.join(root, 'src/main/resources/static', name), 'utf8');
+    const read = name => fs.readFileSync(path.join(root, 'target/frontend', name), 'utf8');
     const pages = {validation: 'validation.html', explorer: 'index.html', query: 'query.html', converter: 'converter.html'};
-    const bundles = path.join(root, 'target/bootstrap.bundle.min.js');
-    const bootstrapCssPath = path.join(root, 'target/bootstrap.min.css');
-    const bootstrapCss = fs.existsSync(bootstrapCssPath) ? fs.readFileSync(bootstrapCssPath, 'utf8') :
-        ':root{--bs-body-color:#212529;--bs-body-bg:#fff;--bs-font-monospace:monospace}.container-fluid,.w-100{width:100%}';
+    const bundles = path.join(root, 'target/frontend/vendor/bootstrap/bootstrap.bundle.min.js');
+    const bootstrapCssPath = path.join(root, 'target/frontend/vendor/bootstrap/bootstrap.min.css');
+    const bootstrapCss = fs.readFileSync(bootstrapCssPath, 'utf8');
     const xml = '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="https://example.org/a"/></rdf:RDF>';
 
     function page(t, name, base = '/app/edm-validator/') {
@@ -56,7 +54,9 @@ if (JSDOM) {
                 const toggle = navbar.querySelector('.navbar-toggler');
                 assert.equal(toggle.type, 'button');
                 assert.ok(document.querySelector(toggle.getAttribute('data-bs-target')).classList.contains('navbar-collapse'));
-                assert.ok(document.querySelector('link[href*="bootstrap@5.3.3"]').getAttribute('integrity'));
+                const bootstrap = document.querySelector('link[href="./vendor/bootstrap/bootstrap.min.css"]');
+                assert.equal(bootstrap.href, 'https://validator.example' + base + 'vendor/bootstrap/bootstrap.min.css');
+                assert.equal(document.querySelector('script[src^="https://"]'), null, 'runtime scripts are served by the application');
                 assert.equal(!!document.getElementById('validationForm'), name === 'validation');
                 assert.equal(!!document.getElementById('graphPanel'), name === 'explorer');
                 assert.equal(!!document.getElementById('queryWorkspace'), name === 'query');
@@ -123,20 +123,18 @@ if (JSDOM) {
                 const value = [computed.fontFamily, computed.fontSize, computed.lineHeight, computed.color, computed.backgroundColor];
                 metrics ||= value;
                 assert.deepEqual(value, metrics, name);
-                assert.equal(computed.fontSize, '0.75rem');
+                assert.equal(computed.fontSize, '12px');
                 assert.notEqual(computed.color, 'rgba(0, 0, 0, 0)');
             }
         }
     });
 
-    test('the actual Bootstrap bundle opens and closes all four responsive navbars', {
-        skip: !fs.existsSync(bundles) && 'Bootstrap bundle unavailable locally.'
-    }, async t => {
+    test('the npm-installed Bootstrap bundle opens and closes all four responsive navbars', async t => {
         const bytes = fs.readFileSync(bundles);
         for (const name of Object.keys(pages)) {
             const window = page(t, name);
-            assert.equal(window.document.querySelector('script[src*="/bootstrap.bundle.min.js"]').getAttribute('integrity'),
-                'sha384-' + crypto.createHash('sha384').update(bytes).digest('base64'));
+            assert.equal(window.document.querySelector('script[src*="/bootstrap.bundle.min.js"]').getAttribute('src'),
+                './vendor/bootstrap/bootstrap.bundle.min.js');
             window.eval(bytes.toString('utf8'));
             const toggle = window.document.querySelector('.navbar-toggler');
             const collapse = window.document.querySelector(toggle.getAttribute('data-bs-target'));

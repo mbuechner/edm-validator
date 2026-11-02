@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../..');
-const assets = path.join(root, 'src/main/resources/static');
+const assets = path.join(root, 'target/frontend');
 let JSDOM;
 try {
-    ({JSDOM} = require(path.join(root, 'target/ui-check/node_modules/jsdom')));
+    ({JSDOM} = require(path.join(root, 'node_modules/jsdom')));
 } catch (error) {
     if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    test('Code view DOM tests', {skip: 'Install jsdom under target/ui-check to run DOM tests.'}, () => {});
+    test('Code view DOM tests', {skip: 'Run npm ci and npm run build before DOM tests.'}, () => {});
 }
 
 if (JSDOM) {
@@ -18,7 +18,7 @@ if (JSDOM) {
     const css = fs.readFileSync(path.join(assets, 'code-view.css'), 'utf8');
     function prism(window) {
         window.Prism = {manual: true};
-        for (const file of ['prism-core-1.29.0.min.js', 'prism-markup-1.29.0.min.js', 'prism-json-1.29.0.min.js']) {
+        for (const file of ['prism-core.min.js', 'prism-markup.min.js', 'prism-json.min.js']) {
             window.eval(fs.readFileSync(path.join(assets, 'vendor', file), 'utf8'));
         }
     }
@@ -84,7 +84,8 @@ if (JSDOM) {
         assert.equal(style.left, '0px');
         assert.equal(style.userSelect, 'none');
         assert.equal(style.pointerEvents, 'none');
-        assert.equal(app.window.getComputedStyle(app.pre).maxHeight, '65vh');
+        assert.ok(Math.abs(parseFloat(app.window.getComputedStyle(app.pre).maxHeight)
+            - app.window.innerHeight * 0.65) < 0.01, 'the source view is limited to 65% of the viewport height');
         assert.match(css, /content:\s*attr\(data-lines\)/);
     });
 
@@ -160,8 +161,7 @@ if (JSDOM) {
         const code = app.render('line\n'.repeat(6_000));
         const detachedHeight = code.style.minHeight;
         app.window.document.body.append(app.pre);
-        code.style.fontSize = '20px';
-        code.style.lineHeight = '2';
+        code.style.font = '20px / 2 monospace';
         code.style.paddingTop = '12px';
         code.style.paddingBottom = '12px';
         assert.equal(frames.length, 1);
