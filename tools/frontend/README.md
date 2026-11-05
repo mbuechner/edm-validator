@@ -20,6 +20,13 @@ Maven installs the pinned Node/npm tools locally under `target/`, runs these ste
 in `generate-resources`, and packages the result as `static/`. Docker uses the same
 Maven build. The runtime container needs only Java and serves its assets locally.
 
+All top-level HTML pages include `<!-- include: navigation -->` once. The build
+replaces it with `fragments/navigation.html` and marks the link whose
+`data-nav-page` matches the page filename with the active styles and
+`aria-current="page"`. Edit this fragment to change the menu for every tool.
+The generated pages contain the complete navigation without a runtime fetch or
+additional JavaScript. Relative links and image URLs preserve context paths.
+
 Run `npm test` for the frontend tests or `npm run test:browser` for the native
 Chrome regression. Browser tests use an existing Chrome/Edge installation or
 `GRAPH_BROWSER_EXECUTABLE`; npm does not download a browser.

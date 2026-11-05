@@ -18,6 +18,26 @@ await rm(output, { recursive: true, force: true });
 await cp(source, output, { recursive: true, filter: filename => filename !== path.join(source, 'vendor') });
 await mkdir(vendor, { recursive: true });
 
+// Include the shared menu at build time so navigation is present without JavaScript.
+const navigation = await readFile(new URL('./fragments/navigation.html', import.meta.url), 'utf8');
+const navigationPlaceholder = '    <!-- include: navigation -->';
+for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.html')) continue;
+    const html = await readFile(path.join(source, entry.name), 'utf8');
+    if (html.split(navigationPlaceholder).length !== 2) {
+        throw new Error(`${entry.name} must include the shared navigation exactly once`);
+    }
+    let activeLinks = 0;
+    const menu = navigation.replace(/<a\b[^>]* data-nav-page="([^"]+)"[^>]*>/g, (link, page) => {
+        if (page !== entry.name) return link;
+        activeLinks++;
+        return link.replace('class="', 'aria-current="page" class="active text-white fw-semibold ');
+    });
+    if (activeLinks !== 1) throw new Error(`${entry.name} must have exactly one navigation link`);
+    await writeFile(path.join(output, entry.name), html.replace(navigationPlaceholder,
+        menu.trimEnd().split('\n').map(line => '    ' + line).join('\n')));
+}
+
 async function copyPackageFile(name, input, destination) {
     const target = path.join(vendor, destination);
     await mkdir(path.dirname(target), { recursive: true });
