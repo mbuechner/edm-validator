@@ -14,7 +14,7 @@
     <main id="mainContent" class="container-fluid px-3 px-lg-4 py-4 w-100">
         <header class="mb-4">
             <h1 id="converterHeading" class="h3 mb-1" tabindex="-1">Konverter</h1>
-            <p class="text-body-secondary mb-0">Die gemeinsame RDF-Eingabe in RDF/XML, JSON-LD, N-Quads oder TriG konvertieren.</p>
+            <p class="text-body-secondary mb-0">Die gemeinsame RDF-Eingabe in RDF/XML, JSON-LD, Turtle, N-Quads, TriG oder Jelly konvertieren.</p>
         </header>
         <section id="rdfSource" class="mb-4"></section>
         <section id="pageMessages" class="sticky-top" aria-label="Meldungen">
@@ -29,17 +29,22 @@
                             <div id="converterInputError" class="text-danger small mb-2" role="status"></div>
                             <fieldset class="mb-3">
                                 <legend class="float-none fs-6 fw-semibold mb-2">Ausgabeformat</legend>
-                                <div class="btn-group w-100" role="group" aria-label="Ausgabeformat">
+                                <div class="d-flex flex-wrap gap-2" role="group" aria-label="Ausgabeformat" aria-describedby="converterFormatAdvantage">
                                     <input id="converterRdfXml" type="radio" name="converterOutput" value="rdfxml" class="btn-check" checked>
                                     <label for="converterRdfXml" class="btn btn-outline-primary py-2">RDF/XML</label>
                                     <input id="converterJsonLd" type="radio" name="converterOutput" value="jsonld" class="btn-check">
                                     <label for="converterJsonLd" class="btn btn-outline-primary py-2">JSON-LD</label>
+                                    <input id="converterTurtle" type="radio" name="converterOutput" value="turtle" class="btn-check">
+                                    <label for="converterTurtle" class="btn btn-outline-primary py-2">Turtle</label>
                                     <input id="converterNQuads" type="radio" name="converterOutput" value="nquads" class="btn-check">
                                     <label for="converterNQuads" class="btn btn-outline-primary py-2">N-Quads</label>
                                     <input id="converterTriG" type="radio" name="converterOutput" value="trig" class="btn-check">
                                     <label for="converterTriG" class="btn btn-outline-primary py-2">TriG</label>
+                                    <input id="converterJelly" type="radio" name="converterOutput" value="jelly" class="btn-check">
+                                    <label for="converterJelly" class="btn btn-outline-primary py-2">Jelly</label>
                                 </div>
                                 <div id="converterOutputSummary" class="form-text"></div>
+                                <p id="converterFormatAdvantage" class="small text-body-secondary mt-2 mb-0"></p>
                                 <div id="converterOutputError" class="text-danger small mt-1" role="status"></div>
                             </fieldset>
                             <details id="converterAdvanced" class="mb-3 border rounded p-3">

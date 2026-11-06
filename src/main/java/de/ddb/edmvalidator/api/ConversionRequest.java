@@ -30,6 +30,8 @@ public record ConversionRequest(
         @Nullable String xmlRepresentation,
         @Nullable String xmlStructure,
         @Nullable Boolean nQuadsOutput,
-        @Nullable Boolean trigOutput
+        @Nullable Boolean trigOutput,
+        @Nullable Boolean turtleOutput,
+        @Nullable Boolean jellyOutput
 ) {
 }

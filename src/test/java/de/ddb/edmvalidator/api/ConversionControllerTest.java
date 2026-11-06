@@ -45,7 +45,7 @@ class ConversionControllerTest {
             new ConversionController(new RdfConversionService(), requireNonNull(JsonMapper.builder().build()))).build();
 
     @Test
-    void omittedOutputFlagsDefaultToXmlAndTheApiSupportsFourExplicitFormats() throws Exception {
+    void omittedOutputFlagsDefaultToXmlAndTheApiSupportsSixExplicitFormats() throws Exception {
         String xml = """
                 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="urn:example:">
                   <rdf:Description rdf:about="https://www.deutsche-digitale-bibliothek.de/item/%s">
@@ -59,7 +59,7 @@ class ConversionControllerTest {
         assertEquals(1, defaults.getJsonArray("results").size());
         assertEquals("rdfxml", defaults.getJsonArray("results").getJsonObject(0).getString("id"));
         assertTrue(defaults.isNull("zipBase64"));
-        for (String flag : List.of("rdfXmlOutput", "jsonLdOutput", "nQuadsOutput", "trigOutput")) {
+        for (String flag : List.of("rdfXmlOutput", "jsonLdOutput", "nQuadsOutput", "trigOutput", "turtleOutput", "jellyOutput")) {
             JsonObject body = convertRequest(Json.createObjectBuilder().add("rdfXml", xml).add(flag, true).build());
             assertTrue(body.getJsonArray("errors").isEmpty(), body.toString());
             assertEquals(1, body.getJsonArray("results").size());
@@ -67,10 +67,15 @@ class ConversionControllerTest {
                 case "rdfXmlOutput" -> "rdfxml";
                 case "jsonLdOutput" -> "compacted";
                 case "nQuadsOutput" -> "nquads";
-                default -> "trig";
+                case "trigOutput" -> "trig";
+                case "turtleOutput" -> "turtle";
+                default -> "jelly";
             }, body.getJsonArray("results").getJsonObject(0).getString("id"));
             JsonObject result = body.getJsonArray("results").getJsonObject(0);
-            if (flag.equals("rdfXmlOutput")) assertTrue(result.isNull("graphIri"));
+            assertTrue(result.getJsonNumber("gzipSizeBytes").longValue() > 0);
+            if (flag.equals("jellyOutput")) assertEquals("base64", result.getString("contentEncoding"));
+            else assertTrue(result.isNull("contentEncoding"));
+            if (flag.equals("rdfXmlOutput") || flag.equals("turtleOutput")) assertTrue(result.isNull("graphIri"));
             else assertEquals("https://api.deutsche-digitale-bibliothek.de/items/" + DDB_ID, result.getString("graphIri"));
         }
         JsonObject none = convertRequest(Json.createObjectBuilder().add("rdfXml", xml)
@@ -78,11 +83,59 @@ class ConversionControllerTest {
         assertTrue(none.getJsonArray("results").isEmpty());
         assertEquals("outputs", none.getJsonArray("errors").getJsonObject(0).getString("field"));
         JsonObject all = convertRequest(Json.createObjectBuilder().add("rdfXml", xml)
-                .add("rdfXmlOutput", true).add("jsonLdOutput", true).add("nQuadsOutput", true).add("trigOutput", true).build());
+                .add("rdfXmlOutput", true).add("jsonLdOutput", true).add("nQuadsOutput", true).add("trigOutput", true)
+                .add("turtleOutput", true).add("jellyOutput", true).build());
         assertTrue(all.getJsonArray("errors").isEmpty(), all.toString());
-        assertEquals(Set.of("rdfxml", "nquads", "trig", "compacted"), all.getJsonArray("results").getValuesAs(JsonObject.class)
+        assertEquals(Set.of("rdfxml", "nquads", "trig", "compacted", "turtle", "jelly"), all.getJsonArray("results").getValuesAs(JsonObject.class)
                 .stream().map(result -> result.getString("id")).collect(Collectors.toSet()));
         assertFalse(all.isNull("zipBase64"));
+    }
+
+    @Test
+    void turtleAndJellyUploadsPreserveNonUtf8SourceEncodingAndReportBinarySizes() throws Exception {
+        String xml = """
+                <?xml version="1.0" encoding="ISO-8859-1"?>
+                <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="urn:example:">
+                  <rdf:Description rdf:about="https://example.org/record"><ex:name xml:lang="de">München &amp; Straße</ex:name>
+                    <ex:part rdf:nodeID="part"/></rdf:Description>
+                  <rdf:Description rdf:nodeID="part"><ex:parent rdf:resource="https://example.org/record"/></rdf:Description>
+                </rdf:RDF>
+                """;
+        byte[] encoded = xml.getBytes(StandardCharsets.ISO_8859_1);
+        MockMultipartFile file = new MockMultipartFile("file", "record.rdf", "application/rdf+xml", encoded);
+        for (String format : List.of("turtle", "jelly")) {
+            String options = "{\"" + format + "Output\":true}";
+            JsonObject body = response(perform(multipart("/api/convert/upload").file(file).param("options", options))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8));
+            assertTrue(body.getJsonArray("errors").isEmpty(), body.toString());
+            assertEquals(1, body.getJsonArray("results").size());
+            JsonObject result = body.getJsonArray("results").getJsonObject(0);
+            assertEquals(format, result.getString("id"));
+            byte[] bytes = format.equals("jelly") ? java.util.Base64.getDecoder().decode(result.getString("content"))
+                    : result.getString("content").getBytes(StandardCharsets.UTF_8);
+            assertEquals(bytes.length, result.getJsonNumber("sizeBytes").longValue());
+            var compressed = new java.io.ByteArrayOutputStream();
+            try (var gzip = new java.util.zip.GZIPOutputStream(compressed)) { gzip.write(bytes); }
+            assertEquals(compressed.size(), result.getJsonNumber("gzipSizeBytes").longValue());
+            var expected = ModelFactory.createDefaultModel();
+            var actual = ModelFactory.createDefaultModel();
+            var dataset = DatasetFactory.createTxnMem();
+            try {
+                RDFDataMgr.read(expected, new java.io.ByteArrayInputStream(encoded), Lang.RDFXML);
+                if (format.equals("jelly")) {
+                    assertEquals("base64", result.getString("contentEncoding"));
+                    assertEquals("application/x-jelly-rdf", result.getString("mediaType"));
+                    RDFDataMgr.read(dataset, new java.io.ByteArrayInputStream(bytes), eu.neverblink.jelly.convert.jena.riot.JellyLanguage.JELLY);
+                    assertTrue(expected.isIsomorphicWith(dataset.getNamedModel(result.getString("graphIri"))));
+                    assertTrue(dataset.getDefaultModel().isEmpty());
+                } else {
+                    assertEquals("text/turtle", result.getString("mediaType"));
+                    assertTrue(result.isNull("graphIri"));
+                    RDFDataMgr.read(actual, new java.io.ByteArrayInputStream(bytes), Lang.TURTLE);
+                    assertTrue(expected.isIsomorphicWith(actual));
+                }
+            } finally { expected.close(); actual.close(); dataset.close(); }
+        }
     }
 
     @Test

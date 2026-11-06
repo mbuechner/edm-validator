@@ -1,6 +1,13 @@
 package de.ddb.edmvalidator.service;
 
 import de.ddb.edmvalidator.api.ConversionRequest;
+import eu.neverblink.jelly.convert.jena.riot.JellyLanguage;
+import eu.neverblink.jelly.convert.jena.riot.JellyFormatVariant;
+import eu.neverblink.jelly.core.proto.v1.LogicalStreamType;
+import eu.neverblink.jelly.core.proto.v1.PhysicalStreamType;
+import eu.neverblink.jelly.core.proto.v1.RdfStreamFrame;
+import eu.neverblink.jelly.core.proto.v1.RdfStreamRow;
+import eu.neverblink.jelly.core.JellyConstants;
 import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
@@ -12,9 +19,11 @@ import org.apache.jena.graph.NodeFactory;
 import org.apache.jena.graph.Triple;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.riot.out.NodeFmtLib;
+import org.apache.jena.riot.RDFDataMgr;
 import org.apache.jena.riot.writer.NQuadsWriter;
 import org.apache.jena.riot.writer.NTriplesWriter;
 import org.apache.jena.sparql.core.Quad;
+import org.apache.jena.sparql.core.DatasetGraphFactory;
 import org.apache.jena.vocabulary.RDF;
 import org.jspecify.annotations.Nullable;
 
@@ -86,6 +95,30 @@ final class RdfRecordDump {
     }
 
     String graphIri() { return graphIri; }
+
+    /** RIOT writes the delimited Jelly file representation, with scoped quads in one record graph. */
+    byte[] jelly() {
+        if (source.isEmpty()) {
+            // Jelly 3.7's RIOT writer emits no frame without a statement. A file
+            // still needs a delimited options frame to declare its empty stream.
+            var options = JellyFormatVariant.DEFAULT_OPTIONS.clone()
+                    .setVersion(JellyConstants.PROTO_VERSION)
+                    .setPhysicalType(PhysicalStreamType.QUADS).setLogicalType(LogicalStreamType.FLAT_QUADS);
+            return RdfStreamFrame.newInstance().addRows(RdfStreamRow.newInstance().setOptions(options))
+                    .toByteArrayDelimited();
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        var dataset = DatasetGraphFactory.createTxnMem();
+        var triples = source.getGraph().find();
+        try {
+            while (triples.hasNext()) dataset.add(new Quad(graph, scoped(triples.next())));
+            RDFDataMgr.write(output, dataset, JellyLanguage.JELLY);
+            return output.toByteArray();
+        } finally {
+            triples.close();
+            dataset.close();
+        }
+    }
 
     /** Expanded JSON-LD represents this dataset as exactly one named graph, even when empty. */
     JsonArray namedGraph(JsonArray nodes) {

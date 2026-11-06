@@ -68,9 +68,10 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import java.util.zip.GZIPOutputStream;
 
 /**
- * Converts one RDF graph into independent RDF/XML and named N-Quads, TriG and JSON-LD outputs.
+ * Converts one RDF graph into RDF/XML, Turtle and named N-Quads, TriG, Jelly and JSON-LD outputs.
  *
  * <p>Instances are stateless: every call owns and closes its Jena model. Input IRIs
  * are identifiers, never download locations; JSON-LD contexts must be embedded.
@@ -112,7 +113,7 @@ public class RdfConversionService {
     /** Uses the conversion parser and its local-only XML/IRI rules for an independent graph preview. */
     public @NonNull GraphResponse graphPreview(GraphRequest request) {
         ConversionRequest source = new ConversionRequest(request.rdfXml(), null, request.documentIri(),
-                null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         Model model = ModelFactory.createDefaultModel();
         try {
             parse(source, null, model);
@@ -132,14 +133,17 @@ public class RdfConversionService {
         List<@Nullable String> requestedMethods = request.methods();
         List<@Nullable String> methods = requestedMethods == null ? List.of("compacted") : requestedMethods;
         boolean defaultOutput = request.rdfXmlOutput() == null && request.jsonLdOutput() == null
-                && request.nQuadsOutput() == null && request.trigOutput() == null;
+                && request.nQuadsOutput() == null && request.trigOutput() == null
+                && request.turtleOutput() == null && request.jellyOutput() == null;
         boolean xml = defaultOutput || Boolean.TRUE.equals(request.rdfXmlOutput());
         boolean jsonld = Boolean.TRUE.equals(request.jsonLdOutput());
         boolean nquads = Boolean.TRUE.equals(request.nQuadsOutput());
         boolean trig = Boolean.TRUE.equals(request.trigOutput());
+        boolean turtle = Boolean.TRUE.equals(request.turtleOutput());
+        boolean jelly = Boolean.TRUE.equals(request.jellyOutput());
         boolean compactFlattening = "compacted".equals(request.representation());
         if (!inspect) {
-            if (!xml && !jsonld && !nquads && !trig) issues.add(new ConversionIssue("outputs", "Bitte mindestens ein Ausgabeformat auswählen."));
+            if (!xml && !jsonld && !nquads && !trig && !turtle && !jelly) issues.add(new ConversionIssue("outputs", "Bitte mindestens ein Ausgabeformat auswählen."));
             if (jsonld && (methods.isEmpty() || methods.stream().anyMatch(m -> m == null || !METHODS.contains(m)))) {
                 issues.add(new ConversionIssue("methods", "Bitte mindestens ein gültiges JSON-LD-Verfahren auswählen."));
             }
@@ -210,8 +214,26 @@ public class RdfConversionService {
                     }
                 }
             }
-            if (!nquads && !trig && !jsonld) return response(results, issues, autoContextText, frameText, resources);
+            if (turtle) {
+                try {
+                    results.add(success("turtle", "converted.ttl", "text/turtle", serialize(model, RDFFormat.TURTLE_PRETTY), false));
+                } catch (Exception ex) {
+                    results.add(failed("turtle", "converted.ttl", "text/turtle", "Turtle konnte nicht geschrieben werden: " + message(ex)));
+                }
+            }
+            if (!nquads && !trig && !jsonld && !jelly) return response(results, issues, autoContextText, frameText, resources);
             RdfRecordDump dump = RdfRecordDump.create(model, request, upload);
+            if (jelly) {
+                try {
+                    byte[] bytes = dump.jelly();
+                    results.add(new ConversionResult("jelly", "converted.jelly", "application/x-jelly-rdf",
+                            Base64.getEncoder().encodeToString(bytes), bytes.length, null, false, dump.graphIri(),
+                            gzipSize(bytes), "base64"));
+                } catch (Exception ex) {
+                    results.add(failed("jelly", "converted.jelly", "application/x-jelly-rdf",
+                            "Jelly konnte nicht geschrieben werden: " + message(ex), dump.graphIri()));
+                }
+            }
             if (nquads || trig) {
                 if (nquads) {
                     try {
@@ -647,7 +669,18 @@ public class RdfConversionService {
 
     private ConversionResult success(@NonNull String id, @NonNull String name, @NonNull String type, String content,
                                      boolean empty, @Nullable String graphIri) {
-        return new ConversionResult(id, name, type, content, content.getBytes(StandardCharsets.UTF_8).length, null, empty, graphIri);
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        return new ConversionResult(id, name, type, content, bytes.length, null, empty, graphIri, gzipSize(bytes), null);
+    }
+
+    private long gzipSize(byte[] content) {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(bytes)) {
+            gzip.write(content);
+        } catch (IOException ex) {
+            throw new UncheckedIOException("Die gzip-Dateigröße konnte nicht berechnet werden.", ex);
+        }
+        return bytes.size();
     }
 
     private @NonNull String fileName(String method, @Nullable String representation) {
@@ -661,7 +694,7 @@ public class RdfConversionService {
     }
 
     private ConversionResult failed(@NonNull String id, @NonNull String name, @NonNull String type, String error, @Nullable String graphIri) {
-        return new ConversionResult(id, name, type, null, 0, error, false, graphIri);
+        return new ConversionResult(id, name, type, null, 0, error, false, graphIri, 0, null);
     }
 
     private @NonNull ConversionResponse response(List<ConversionResult> results, List<@NonNull ConversionIssue> issues,
@@ -680,7 +713,8 @@ public class RdfConversionService {
             for (ConversionResult result : successful) {
                 zip.putNextEntry(new ZipEntry(result.fileName()));
                 String content = Objects.requireNonNull(result.content(), "A successful conversion must supply content");
-                zip.write(content.getBytes(StandardCharsets.UTF_8));
+                zip.write("base64".equals(result.contentEncoding()) ? Base64.getDecoder().decode(content)
+                        : content.getBytes(StandardCharsets.UTF_8));
                 zip.closeEntry();
             }
         } catch (IOException ex) {

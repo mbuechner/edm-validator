@@ -4,9 +4,10 @@ import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
 /**
- * One requested output. Successful content is the exact UTF-8 document shared by
- * display, clipboard and download; failures carry an error and no content.
- * N-Quads and TriG expose their automatically selected record graph IRI.
+ * One requested output. Text content is the exact UTF-8 document shared by display,
+ * clipboard and download; binary Jelly content uses {@code contentEncoding=base64}.
+ * Both sizes describe the actual file bytes, before Base64 transport encoding.
+ * Dataset formats expose their automatically selected record graph IRI.
  */
 @NullMarked
 public record ConversionResult(
@@ -17,6 +18,8 @@ public record ConversionResult(
         long sizeBytes,
         @Nullable String error,
         boolean empty,
-        @Nullable String graphIri
+        @Nullable String graphIri,
+        long gzipSizeBytes,
+        @Nullable String contentEncoding
 ) {
 }

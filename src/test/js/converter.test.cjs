@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { gzipSync } = require('node:zlib');
 const root = path.resolve(__dirname, '../../..');
 let JSDOM;
 try {
@@ -34,6 +35,7 @@ if (JSDOM) {
         '@graph': [{'@id': 'https://example.org/org', 'schema:name': {'@value': '<img src=x onerror=alert(1)>', '@language': 'de'}}]};
     const data = Object.fromEntries([
         ['rdfxml', 'converted.rdf', 'application/rdf+xml', inputXml],
+        ['turtle', 'converted.ttl', 'text/turtle', '@prefix schema: <http://schema.org/> .\n<https://example.org/org> schema:name "München & Straße"@de .\n'],
         ['nquads', 'converted.nq', 'application/n-quads', '<https://example.org/org> <http://schema.org/name> "' + longLiteral
             + '"@de <' + namedGraphIri + '> .\n<urn:record> <urn:note> "<img src=x>" <' + namedGraphIri + '> .\n'],
         ['trig', 'converted.trig', 'application/trig', '<' + namedGraphIri + '> { <https://example.org/org> <http://schema.org/name> "'
@@ -44,13 +46,18 @@ if (JSDOM) {
         ['framed', 'framed.jsonld', 'application/ld+json', JSON.stringify({'@context': {schema: 'http://schema.org/'},
             '@id': namedGraphIri, '@graph': [{'@id': 'https://example.org/org', 'schema:name': 'München & Straße'}]}, null, 2) + '\n']
     ].map(([id, fileName, mediaType, content]) => [id, {
-        id, fileName, mediaType, content, sizeBytes: Buffer.byteLength(content, 'utf8'), error: null, empty: false,
-        graphIri: id === 'rdfxml' ? null : namedGraphIri
+        id, fileName, mediaType, content, sizeBytes: Buffer.byteLength(content, 'utf8'), gzipSizeBytes: gzipSync(content).length,
+        error: null, empty: false, graphIri: ['rdfxml', 'turtle'].includes(id) ? null : namedGraphIri
     }]));
+    const jellyBytes = Buffer.from([0, 10, 255, 128, 60, 34, 38, 13, 0, 254]);
+    data.jelly = {id: 'jelly', fileName: 'converted.jelly', mediaType: 'application/x-jelly-rdf',
+        content: jellyBytes.toString('base64'), contentEncoding: 'base64', sizeBytes: jellyBytes.length,
+        gzipSizeBytes: gzipSync(jellyBytes).length, graphIri: namedGraphIri, error: null, empty: false};
     const jsonChoices = ['compacted', 'expanded'].flatMap(representation =>
         ['standard', 'flattened', 'framed'].map(structure => ({ representation, structure })));
     function resultFor(request) {
-        const id = request.rdfXmlOutput ? 'rdfxml' : request.trigOutput ? 'trig' : request.nQuadsOutput ? 'nquads' : request.methods[0];
+        const id = request.rdfXmlOutput ? 'rdfxml' : request.jellyOutput ? 'jelly' : request.turtleOutput ? 'turtle'
+            : request.trigOutput ? 'trig' : request.nQuadsOutput ? 'nquads' : request.methods[0];
         const result = { ...data[id] };
         if (['flattened', 'framed'].includes(id) && request.representation) {
             result.fileName = id + '-' + request.representation + '.jsonld';
@@ -60,6 +67,7 @@ if (JSDOM) {
                 result.content = JSON.stringify({ '@context': localContext, '@graph': [node] }) + '\n';
             }
             result.sizeBytes = Buffer.byteLength(result.content, 'utf8');
+            result.gzipSizeBytes = gzipSync(result.content).length;
         }
         return result;
     }
@@ -174,10 +182,14 @@ if (JSDOM) {
         assert.equal(app.get('converterJsonLd').type, 'radio');
         assert.equal(app.get('converterNQuads').type, 'radio');
         assert.equal(app.get('converterTriG').type, 'radio');
+        assert.equal(app.get('converterTurtle').type, 'radio');
+        assert.equal(app.get('converterJelly').type, 'radio');
         assert.equal(app.get('converterRdfXml').checked, true);
         assert.equal(app.get('converterJsonLd').checked, false);
         assert.equal(app.get('converterNQuads').checked, false);
         assert.equal(app.get('converterTriG').checked, false);
+        assert.equal(app.get('converterTurtle').checked, false);
+        assert.equal(app.get('converterJelly').checked, false);
         assert.equal(app.get('converterMethod').value, 'compacted');
         assert.equal(app.get('converterStructure').value, 'standard');
         assert.equal(app.get('converterStructure').querySelector('option[value="standard"]').textContent.trim(), 'Vollständiger Graph');
@@ -252,7 +264,7 @@ if (JSDOM) {
         assert.equal(request.jsonLdOutput, false);
         assert.equal(request.nQuadsOutput, false);
         assert.equal(request.trigOutput, false);
-        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'xmlRepresentation', 'xmlStructure']);
+        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jellyOutput', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'turtleOutput', 'xmlRepresentation', 'xmlStructure']);
         assert.equal(request.xmlRepresentation, 'typed');
         assert.equal(request.xmlStructure, 'flat');
         assert.equal(Object.hasOwn(request, 'xmlFormatting'), false);
@@ -317,7 +329,7 @@ if (JSDOM) {
                 assert.equal(request.jsonLdOutput, false);
                 assert.equal(request.nQuadsOutput, false);
                 assert.equal(request.trigOutput, false);
-                assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'xmlRepresentation', 'xmlStructure']);
+                assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jellyOutput', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'turtleOutput', 'xmlRepresentation', 'xmlStructure']);
                 assert.equal(app.get('converterResults').querySelectorAll('article').length, 1);
                 const selectedLabels = ['converterXmlRepresentation', 'converterXmlStructure']
                     .map(id => app.get(id).selectedOptions[0].textContent.trim());
@@ -368,9 +380,9 @@ if (JSDOM) {
             app.window.document.head.append(style);
         }
         app.input('rdfXmlInput', inputXml);
-        for (const choice of [{ xml: true }, { nquads: true }, { trig: true }, ...jsonChoices]) {
-            app.check(choice.xml ? 'converterRdfXml' : choice.nquads ? 'converterNQuads' : choice.trig ? 'converterTriG' : 'converterJsonLd');
-            if (!choice.xml && !choice.nquads && !choice.trig) {
+        for (const choice of [{ xml: true }, { turtle: true }, { nquads: true }, { trig: true }, ...jsonChoices]) {
+            app.check(choice.xml ? 'converterRdfXml' : choice.turtle ? 'converterTurtle' : choice.nquads ? 'converterNQuads' : choice.trig ? 'converterTriG' : 'converterJsonLd');
+            if (!choice.xml && !choice.turtle && !choice.nquads && !choice.trig) {
                 app.input('converterMethod', choice.representation);
                 app.input('converterStructure', choice.structure);
             }
@@ -384,7 +396,10 @@ if (JSDOM) {
             assert.equal(code.textContent, result.content);
             assert.equal(cards[0].querySelector('pre').textContent, result.content, 'decorative numbers never enter output text');
             assert.equal(cards[0].querySelector('.code-view-gutter').getAttribute('aria-hidden'), 'true');
-            assert.equal(code.className, result.id === 'rdfxml' ? 'language-markup' : ['nquads', 'trig'].includes(result.id) ? 'language-none' : 'language-json');
+            assert.equal(code.className, result.id === 'rdfxml' ? 'language-markup' : ['nquads', 'trig', 'turtle'].includes(result.id) ? 'language-none' : 'language-json');
+            assert.match(cards[0].querySelector('.small.text-body-secondary.text-break').textContent,
+                new RegExp('gzip: ' + result.gzipSizeBytes.toLocaleString('de-DE').replaceAll('.', '\\.') + ' Bytes'));
+            assert.equal(cards[0].querySelector('.converter-format-advantage').textContent, app.get('converterFormatAdvantage').textContent);
             if (choice.nquads || choice.trig) {
                 assert.equal(cards[0].querySelector('h3').textContent, choice.trig ? 'TriG' : 'N-Quads');
                 assert.equal(cards[0].querySelector('.form-text').textContent, 'Benannter Graph: ' + result.graphIri);
@@ -401,7 +416,7 @@ if (JSDOM) {
                 assert.equal(app.window.getComputedStyle(code).wordBreak, 'normal');
                 assert.equal(app.window.getComputedStyle(code).minWidth, 'max-content');
                 assert.equal(app.window.getComputedStyle(pre).overflow, 'auto', 'long quad lines can be scrolled horizontally');
-            } else if (choice.xml) assert.equal(cards[0].querySelector('.form-text'), null);
+            } else if (choice.xml || choice.turtle) assert.equal(cards[0].querySelector('.form-text'), null);
             else {
                 assertNamedJsonGraph(result.content);
                 assert.equal(cards[0].querySelector('.form-text').textContent, 'Benannter Graph: ' + result.graphIri);
@@ -418,6 +433,71 @@ if (JSDOM) {
             assert.equal(await saved.blob.text(), result.content);
             assert.equal(app.get('converterResults').querySelector('img'), null, 'document contents remain text');
         }
+    });
+
+    test('Turtle and Jelly select one format, explain its advantage and disable unrelated options', async t => {
+        const app = harness(t);
+        app.input('rdfXmlInput', inputXml);
+        const advantages = new Set();
+        for (const [radio, format] of [['converterRdfXml', 'rdfxml'], ['converterJsonLd', 'jsonld'],
+            ['converterTurtle', 'turtle'], ['converterNQuads', 'nquads'], ['converterTriG', 'trig'], ['converterJelly', 'jelly']]) {
+            app.check(radio);
+            const advantage = app.get('converterFormatAdvantage').textContent;
+            assert.ok(advantage.startsWith(format === 'rdfxml' ? 'RDF/XML' : format === 'jsonld' ? 'JSON-LD' :
+                format === 'nquads' ? 'N-Quads' : format === 'trig' ? 'TriG' : format === 'jelly' ? 'Jelly' : 'Turtle'));
+            assert.ok(advantage.endsWith('.'));
+            advantages.add(advantage);
+            const group = app.get(radio).parentElement;
+            assert.ok(group.classList.contains('flex-wrap'), 'format controls can wrap on narrow screens');
+            if (!['turtle', 'jelly'].includes(format)) continue;
+            app.open('converterAdvanced');
+            for (const id of ['converterXmlOptions', 'converterJsonOptions', 'converterFrameOptions']) {
+                assert.equal(app.get(id).classList.contains('d-none'), true, id);
+            }
+            for (const id of ['converterXmlRepresentation', 'converterXmlStructure', 'converterMethod', 'converterStructure', 'converterFrame']) {
+                assert.equal(app.get(id).disabled, true, id);
+            }
+            await app.submit();
+            const request = JSON.parse(app.conversions().at(-1).body);
+            for (const key of ['rdfXmlOutput', 'jsonLdOutput', 'nQuadsOutput', 'trigOutput', 'turtleOutput', 'jellyOutput']) {
+                assert.equal(request[key], key === format + 'Output', key);
+            }
+            assert.equal(Object.hasOwn(request, 'methods'), false);
+            assert.equal(Object.hasOwn(request, 'xmlRepresentation'), false);
+            assert.equal(app.get('converterResults').querySelectorAll('article').length, 1);
+            assert.equal(app.get('converterResults').querySelector('h3').textContent, format === 'turtle' ? 'Turtle' : 'Jelly');
+            assert.equal(app.get('converterResults').querySelector('.converter-format-advantage').textContent, advantage);
+            assert.match(app.get('converterResults').textContent, /gzip: \d+ Bytes/);
+        }
+        assert.equal(advantages.size, 6, 'each serialization has its own explanation');
+        await pause(650);
+        assert.equal(app.inspections().length, 0, 'Turtle and Jelly need no frame metadata');
+        app.get('converterReset').click();
+        assert.equal(app.get('converterTurtle').checked, false);
+        assert.equal(app.get('converterJelly').checked, false);
+        assert.equal(app.get('converterRdfXml').checked, true);
+    });
+
+    test('Jelly downloads its decoded binary bytes and reports the binary and gzip sizes', async t => {
+        const app = harness(t);
+        app.input('rdfXmlInput', inputXml);
+        app.check('converterJelly');
+        await app.submit();
+        const card = app.get('converterResults').querySelector('article');
+        assert.equal(card.querySelector('pre'), null, 'binary content is not presented as source text');
+        assert.equal(card.querySelector('code'), null);
+        assert.equal(card.querySelectorAll('button').length, 1, 'binary data has only a download action');
+        assert.match(card.textContent, /Jelly ist ein Binärformat/);
+        assert.equal(card.querySelector('.form-text').textContent, 'Benannter Graph: ' + namedGraphIri);
+        assert.ok(card.textContent.includes('converted.jelly · ' + jellyBytes.length + ' Bytes · gzip: ' + data.jelly.gzipSizeBytes + ' Bytes'));
+        assert.ok(!card.textContent.includes(data.jelly.content), 'base64 transport encoding is not shown to users');
+        action(card, 'Herunterladen').click();
+        const saved = app.downloads.at(-1);
+        assert.equal(saved.fileName, 'converted.jelly');
+        assert.equal(saved.blob.type, 'application/x-jelly-rdf');
+        assert.equal(saved.blob.size, jellyBytes.length);
+        assert.deepEqual(Buffer.from(await saved.blob.arrayBuffer()), jellyBytes);
+        assert.equal(app.copies.length, 0);
     });
 
     test('named graph formats send only model input and output flags, disable unrelated options and reuse metadata', async t => {
@@ -452,7 +532,7 @@ if (JSDOM) {
             assert.equal(app.inspections().length, 0, format.label + ' needs no framing metadata request');
             await app.submit();
             const request = JSON.parse(app.conversions().at(-1).body);
-            assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput']);
+            assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jellyOutput', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'turtleOutput']);
             assert.equal(request.rdfXmlOutput, false);
             assert.equal(request.jsonLdOutput, false);
             assert.equal(request.nQuadsOutput, format.id === 'nquads');
@@ -674,7 +754,7 @@ if (JSDOM) {
         assert.equal(request.jsonLdOutput, false);
         assert.equal(request.nQuadsOutput, false);
         assert.equal(request.trigOutput, false);
-        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput'],
+        assert.deepEqual(Object.keys(request).sort(), ['baseIri', 'documentIri', 'jellyOutput', 'jsonLdOutput', 'nQuadsOutput', 'rdfXml', 'rdfXmlOutput', 'trigOutput', 'turtleOutput'],
             'metadata requests carry only model input and disabled output flags');
         assert.equal(Object.hasOwn(request, 'flattenWithContext'), false);
         assert.equal(app.get('converterResources').options.length, 2);

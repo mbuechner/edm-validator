@@ -14,6 +14,15 @@
         compacted: 'Kurze Bezeichner mit automatisch erzeugtem Kontext.',
         expanded: 'Vollständige IRIs und explizite Werte.'
     };
+    const formatLabels = { turtle: 'Turtle', nquads: 'N-Quads', trig: 'TriG', jelly: 'Jelly' };
+    const formatAdvantages = {
+        rdfxml: 'RDF/XML lässt sich mit vorhandenen XML-Werkzeugen und etablierten RDF-Systemen verarbeiten.',
+        jsonld: 'JSON-LD bindet RDF-Daten direkt in JSON-basierte Webanwendungen ein.',
+        turtle: 'Turtle stellt RDF mit Präfixen kompakt und gut lesbar dar.',
+        nquads: 'N-Quads lässt sich dank einer Zeile pro Aussage einfach streamen und zeilenweise verarbeiten.',
+        trig: 'TriG kann benannte Graphen in einer Zeile darstellen und hat eine an Turtle angelehnten Syntax.',
+        jelly: 'Jelly speichert RDF binär und platzsparend für schnelle Übertragung und sehr schnelle Verarbeitung.'
+    };
     const structureHints = {
         standard: 'Alle Aussagen in einem benannten Graphen ausgeben.',
         flattened: 'Jede Ressource im benannten Graphen als eigenen Knoten ausgeben.',
@@ -47,6 +56,8 @@
     const isXml = () => output() === 'rdfxml';
     const isNQuads = () => output() === 'nquads';
     const isTriG = () => output() === 'trig';
+    const isTurtle = () => output() === 'turtle';
+    const isJelly = () => output() === 'jelly';
     const representation = () => byId('converterMethod').value;
     const structure = () => byId('converterStructure').value;
     const xmlRepresentation = () => byId('converterXmlRepresentation').value;
@@ -201,7 +212,10 @@
         byId('converterStructureHint').textContent = structureHints[structure()];
         byId('converterOutputSummary').textContent = json ? jsonLabel() + ' · ein benannter Graph (Named Graph).' : xml ? xmlLabel() : isNQuads()
             ? 'N-Quads · ein benannter Graph (Named Graph), eine Zeile je Quad.'
-            : 'TriG · ein benannter Graph (Named Graph) mit allen Aussagen in einer Zeile.';
+            : isTriG() ? 'TriG · ein benannter Graph (Named Graph) mit allen Aussagen in einer Zeile.'
+                : isTurtle() ? 'Turtle · alle Aussagen als RDF-Graph.'
+                    : 'Jelly · ein benannter Graph (Named Graph) als Binärdatei.';
+        byId('converterFormatAdvantage').textContent = formatAdvantages[output()];
         byId('converterXmlRepresentationHint').textContent = xmlRepresentationHints[xmlRepresentation()];
         byId('converterXmlStructureHint').textContent = xmlStructureHints[xmlStructure()];
         visible('converterFrameOptions', framed);
@@ -228,8 +242,9 @@
     }
 
     function requestData() {
-        const input = { ...modelInput(), rdfXmlOutput: isXml(), jsonLdOutput: isJson(), nQuadsOutput: isNQuads(), trigOutput: isTriG() };
-        if (isNQuads() || isTriG()) return input;
+        const input = { ...modelInput(), rdfXmlOutput: isXml(), jsonLdOutput: isJson(), nQuadsOutput: isNQuads(), trigOutput: isTriG(),
+            turtleOutput: isTurtle(), jellyOutput: isJelly() };
+        if (isNQuads() || isTriG() || isTurtle() || isJelly()) return input;
         if (isXml()) return {
             ...input,
             xmlRepresentation: xmlRepresentation(), xmlStructure: xmlStructure()
@@ -320,7 +335,8 @@
         inspectingRevision = version;
         try {
             // Only model metadata is needed here, never a transformation or a frame.
-            const data = await api('/inspect', { ...modelInput(), rdfXmlOutput: false, jsonLdOutput: false, nQuadsOutput: false, trigOutput: false }, controller.signal);
+            const data = await api('/inspect', { ...modelInput(), rdfXmlOutput: false, jsonLdOutput: false, nQuadsOutput: false, trigOutput: false,
+                turtleOutput: false, jellyOutput: false }, controller.signal);
             if (sourceRevision !== version || controller.signal.aborted || !wantsMetadata()) return;
             inspectedRevision = version;
             metadataIssues = (data.errors || []).filter(issue => ['rdfXml', 'file', 'baseIri', 'documentIri'].includes(issue.field));
@@ -369,9 +385,14 @@
         const article = document.createElement('article');
         const title = document.createElement('h3');
         title.className = 'h6';
-        const graphDump = item.id === 'nquads' || item.id === 'trig';
-        title.textContent = item.id === 'rdfxml' ? xmlLabel() : graphDump ? item.id === 'trig' ? 'TriG' : 'N-Quads' : jsonLabel();
+        const plainText = ['nquads', 'trig', 'turtle'].includes(item.id);
+        const binary = item.contentEncoding === 'base64';
+        title.textContent = item.id === 'rdfxml' ? xmlLabel() : formatLabels[item.id] || jsonLabel();
         article.append(title);
+        const advantage = document.createElement('p');
+        advantage.className = 'converter-format-advantage small text-body-secondary mb-3';
+        advantage.textContent = formatAdvantages[item.id] || formatAdvantages.jsonld;
+        article.append(advantage);
         if (item.id !== 'rdfxml' && typeof item.graphIri === 'string' && item.graphIri) {
             const graph = document.createElement('p');
             graph.className = 'form-text small text-break mb-3';
@@ -383,40 +404,50 @@
             toolbar.className = 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3';
             const info = document.createElement('span');
             info.className = 'small text-body-secondary text-break';
-            info.textContent = item.fileName + ' · ' + Number(item.sizeBytes).toLocaleString('de-DE') + ' Bytes';
+            info.textContent = item.fileName + ' · ' + Number(item.sizeBytes).toLocaleString('de-DE') + ' Bytes'
+                + ' · gzip: ' + Number(item.gzipSizeBytes).toLocaleString('de-DE') + ' Bytes';
             const actions = document.createElement('div');
             actions.className = 'd-flex flex-wrap gap-2';
-            const copy = document.createElement('button');
-            copy.type = 'button';
-            copy.className = 'btn btn-sm btn-outline-secondary';
-            copy.textContent = 'Kopieren';
-            copy.setAttribute('aria-label', title.textContent + ' kopieren');
             const save = document.createElement('button');
             save.type = 'button';
             save.className = 'btn btn-sm btn-primary';
             save.textContent = 'Herunterladen';
             save.setAttribute('aria-label', item.fileName + ' herunterladen');
-            const pre = document.createElement('pre');
-            pre.className = 'source-code border rounded bg-body-tertiary p-3 mb-0 overflow-auto font-monospace focus-ring';
-            pre.tabIndex = 0;
-            pre.setAttribute('aria-label', title.textContent + ' Quelltext (schreibgeschützt)');
-            const code = document.createElement('code');
-            const language = item.id === 'rdfxml' ? 'markup' : graphDump ? 'none' : 'json';
-            code.className = 'language-' + language;
-            pre.append(code);
-            copy.addEventListener('click', async () => {
-                const copied = await copyContent(item.content, pre);
-                status(copied ? item.fileName + ' wurde kopiert.' :
-                    'Automatisches Kopieren ist nicht verfügbar. Der Quelltext ist markiert und kann mit Strg+C kopiert werden.', copied ? 'success' : 'info');
-            });
-            save.addEventListener('click', () => download(new Blob([item.content], {
-                type: item.mediaType + ';charset=utf-8'
+            const content = binary ? Uint8Array.from(atob(item.content), character => character.charCodeAt(0)) : item.content;
+            save.addEventListener('click', () => download(new Blob([content], {
+                type: item.mediaType + (binary ? '' : ';charset=utf-8')
             }), item.fileName));
-            actions.append(copy, save);
+            if (!binary) {
+                const pre = document.createElement('pre');
+                pre.className = 'source-code border rounded bg-body-tertiary p-3 mb-0 overflow-auto font-monospace focus-ring';
+                pre.tabIndex = 0;
+                pre.setAttribute('aria-label', title.textContent + ' Quelltext (schreibgeschützt)');
+                const code = document.createElement('code');
+                const language = item.id === 'rdfxml' ? 'markup' : plainText ? 'none' : 'json';
+                code.className = 'language-' + language;
+                pre.append(code);
+                const copy = document.createElement('button');
+                copy.type = 'button';
+                copy.className = 'btn btn-sm btn-outline-secondary';
+                copy.textContent = 'Kopieren';
+                copy.setAttribute('aria-label', title.textContent + ' kopieren');
+                copy.addEventListener('click', async () => {
+                    const copied = await copyContent(item.content, pre);
+                    status(copied ? item.fileName + ' wurde kopiert.' :
+                        'Automatisches Kopieren ist nicht verfügbar. Der Quelltext ist markiert und kann mit Strg+C kopiert werden.', copied ? 'success' : 'info');
+                });
+                actions.append(copy);
+                article.append(pre);
+                window.CodeView.render(pre, item.content, language);
+            } else {
+                const notice = document.createElement('p');
+                notice.className = 'border rounded bg-body-tertiary p-3 mb-0';
+                notice.textContent = 'Jelly ist ein Binärformat. Die erzeugte RDF-Datei steht zum Herunterladen bereit.';
+                article.append(notice);
+            }
+            actions.append(save);
             toolbar.append(info, actions);
-            article.append(toolbar);
-            article.append(pre);
-            window.CodeView.render(pre, item.content, language);
+            article.insertBefore(toolbar, article.lastChild);
             hasResult = true;
         }
         byId('converterResults').append(article);
@@ -495,7 +526,8 @@
             inspectedRevision = sourceRevision;
             metadataIssues = (response.errors || []).filter(issue => ['rdfXml', 'file', 'baseIri', 'documentIri'].includes(issue.field));
             updateMetadata(response);
-            const expectedId = data.trigOutput ? 'trig' : data.nQuadsOutput ? 'nquads' : data.jsonLdOutput ? data.methods[0] : 'rdfxml';
+            const expectedId = data.jellyOutput ? 'jelly' : data.turtleOutput ? 'turtle' : data.trigOutput ? 'trig'
+                : data.nQuadsOutput ? 'nquads' : data.jsonLdOutput ? data.methods[0] : 'rdfxml';
             const result = (response.results || []).find(item => item.id === expectedId);
             const issues = [...(response.errors || [])];
             if (result?.error && !issues.some(issue => issue.message === result.error)) {

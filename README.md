@@ -412,7 +412,11 @@ Bei relativen Ressourcen-IRIs ist eine absolute Basis erforderlich: aus
 `xml:base`, der bekannten ursprünglichen Dokument-IRI oder dem Feld **Basis-IRI**.
 Lokale Dateinamen und temporäre Serverpfade werden nicht als Basis verwendet.
 
-Die Oberfläche erzeugt genau **eine Ergebnisdatei**: RDF/XML, JSON-LD, N-Quads oder TriG.
+Die Oberfläche erzeugt genau **eine Ergebnisdatei**: RDF/XML, JSON-LD, Turtle,
+N-Quads, TriG oder Jelly. Zu jedem Format wird ein kurzer Vorteil angezeigt.
+Das Ergebnis zeigt sowohl die ursprüngliche Dateigröße als auch die Größe nach
+gzip-Komprimierung in Bytes. Beide Werte beziehen sich auf die tatsächlichen
+Dateibytes: bei Textformaten auf UTF-8, bei Jelly auf die binäre Datei.
 Standard ist **RDF/XML**, typisiert und flach. Auch **Einstellungen zurücksetzen**
 stellt dieses Format wieder her. Unter der gemeinsamen Eingabe stehen Einstellungen
 und Ergebnis auf großen Bildschirmen nebeneinander; auf kleinen Bildschirmen
@@ -424,7 +428,7 @@ getrennte Knoten oder eingebettete Ressource). Alle sechs Kombinationen sind
 möglich. Expansion und Compaction sind JSON-LD-Verfahren und gelten nicht für
 RDF/XML. XML wird neu serialisiert; das ist keine JSON-LD-Expansion oder -Compaction.
 
-**JSON-LD, N-Quads und TriG exportieren denselben Named Graph.** In JSON-LD steht
+**JSON-LD, N-Quads, TriG und Jelly exportieren denselben Named Graph.** In JSON-LD steht
 der Graphname als `@id` am Objekt mit `@graph`; die enthaltenen Ressourcen haben
 ihre eigenen `@id`-Werte. Die expandierte Darstellung enthält dieses Graphobjekt
 in einem Array, die kompakte Darstellung verwendet den automatisch erzeugten
@@ -448,6 +452,12 @@ typisierte, flache Ausgabe. XML und JSON werden immer lesbar eingerückt ausgege
 Leerzeichen in Literalwerten bleiben unverändert. JSON-LD-Frames und deren
 Einbettungsregeln beeinflussen diese XML-Serialisierung nicht.
 
+**[Turtle](https://www.w3.org/TR/turtle/)** erzeugt `converted.ttl` als UTF-8 mit dem
+Medientyp `text/turtle`. Präfixe und zusammengefasste Aussagen machen den
+vollständigen RDF-Graphen kompakt und gut lesbar. Wie RDF/XML enthält Turtle
+keinen zusätzlichen Named Graph; die Ressourcen-IRIs und Literalwerte bleiben
+erhalten.
+
 **[N-Quads](https://www.w3.org/TR/n-quads/)** erzeugt `converted.nq` als UTF-8 mit dem Medientyp
 `application/n-quads`. Alle Aussagen der Eingabe werden gemeinsam in **einem Named
 Graph** ausgegeben; jede Zeile enthält dessen Graph-IRI als vierten Term. IRIs,
@@ -470,7 +480,15 @@ solche Exporte aneinanderhängen und an Zeilengrenzen in vollständige Datensät
 aufteilen. Auch ein leeres RDF-Modell erzeugt eine Zeile mit einem leeren
 Graphblock; RDF-Stores müssen die Existenz leerer Graphen allerdings nicht erhalten.
 
-Alle drei Formate verwenden dieselbe automatisch bestimmte Graph-IRI, die im
+**[Jelly](https://jelly-rdf.github.io/latest/)** erzeugt `converted.jelly` mit dem
+Medientyp `application/x-jelly-rdf`. Die binäre RDF-Serialisierung eignet sich
+für platzsparenden Austausch und schnelle Verarbeitung. Der Download enthält
+eine Jelly-Datei im delimited Format mit demselben Named Graph wie die anderen
+Dataset-Ausgaben. Bei einem leeren RDF-Modell enthält die Datei nur die Stream-Metadaten;
+die gewählte Graph-IRI bleibt in den Ergebnismetadaten verfügbar. Die Oberfläche
+zeigt einen Hinweis zum Binärformat.
+
+Alle vier Dataset-Formate verwenden dieselbe automatisch bestimmte Graph-IRI, die im
 Ergebnis angezeigt wird. Für eine eindeutige DDB-Objekt-ID lautet sie immer
 `https://api.deutsche-digitale-bibliothek.de/items/<ID>`. Die ID wird aus
 vorhandenen API-IRIs unter `/items/` oder `/records/` beziehungsweise der
@@ -485,7 +503,7 @@ Graphnamen bei jeder Änderung der Eingabebytes.
 
 Blank-Node-Bezeichner erhalten einen graphabhängigen Namensraum,
 damit beim Zusammenfügen verschiedener Datensätze keine unbeabsichtigten
-Verknüpfungen entstehen. Für N-Quads und TriG gibt es keine XML- oder
+Verknüpfungen entstehen. Für Turtle, N-Quads, TriG und Jelly gibt es keine XML- oder
 JSON-LD-Einstellungen; eine benötigte Basis-IRI lässt sich weiterhin angeben.
 
 Für DDB-Dokumente, bei denen typisierte Elemente wie `edm:TimeSpan` und getrennte
@@ -511,21 +529,23 @@ Weitere unabhängig angeforderte Ausgaben werden weiterhin erzeugt.
 | Darstellung | Struktur | Datei |
 | --- | --- | --- |
 | RDF/XML typisiert / explizit | Flach / verschachtelt | `converted.rdf` |
+| Turtle | Vollständiger RDF-Graph mit Präfixen | `converted.ttl` |
 | N-Quads | Ein Named Graph, ein Quad pro Zeile | `converted.nq` |
 | TriG | Ein vollständiger Named Graph pro Zeile | `converted.trig` |
+| Jelly | Ein Named Graph als binäre RDF-Serialisierung | `converted.jelly` |
 | JSON-LD kompakt | Vollständiger Named Graph | `compacted.jsonld` |
 | JSON-LD expandiert | Vollständiger Named Graph | `expanded.jsonld` |
 | JSON-LD kompakt / expandiert | Named Graph mit getrennten Knoten | `flattened-compacted.jsonld` / `flattened-expanded.jsonld` |
 | JSON-LD kompakt / expandiert | Named Graph mit eingebetteter Ressource | `framed-compacted.jsonld` / `framed-expanded.jsonld` |
 
-Apache Jena liest das RDF-Modell und serialisiert RDF/XML, N-Quads sowie die gemeinsame
+Apache Jena liest das RDF-Modell und serialisiert RDF/XML, Turtle, N-Quads sowie die gemeinsame
 JSON-LD-Ausgangsdarstellung mit `JSONLD11_PLAIN`. Der von Jena bereits transitiv
 mitgebrachte Titanium-Prozessor übernimmt Expansion, Compaction,
 Flattening und Framing über seine Bibliotheks-APIs. Die tatsächlichen APIs wurden
 an den lokal verwendeten JARs geprüft; siehe auch die
 [Jena-Ein-/Ausgabedokumentation](https://jena.apache.org/documentation/io/) und
 [Titanium JSON-LD](https://github.com/filip26/titanium-json-ld).
-Es werden keine zusätzlichen Laufzeitbibliotheken eingebunden. Titanium und JSON-P
+Für Jelly wird die Jena-Integration von Jelly-JVM eingebunden. Titanium und JSON-P
 stammen aus der vorhandenen Jena-Abhängigkeit; Upload-Optionen werden mit dem
 bereits von Spring Boot konfigurierten Jackson-Mapper eingelesen.
 Die TriG-Ausgabe verwendet Jenas RDF-Term-Serialisierung und schreibt die Aussagen
@@ -552,11 +572,11 @@ Beziehungen werden ausschließlich im eigenen Frame angegeben. Framing erzeugt
 eine ausgewählte Ansicht und darf deshalb einen Teil des Eingabegraphen auslassen.
 Zyklische Beziehungen bleiben bei Bedarf Referenzen; Ressourcen-IRIs bleiben erhalten.
 
-Ergebnisse werden schreibgeschützt mit Syntaxhervorhebung angezeigt. Vorschau,
+Textergebnisse werden schreibgeschützt angezeigt. Vorschau,
 Zwischenablage und Browser-Download verwenden denselben Ergebnistext.
 Bei blockiertem Zwischenablagezugriff wird der Quelltext zum Kopieren mit Strg+C
 markiert; ein veralteter Kopieraufruf wird nicht verwendet.
-Die Dateien enthalten UTF-8 mit `application/rdf+xml` bzw. `application/ld+json`.
+Textdateien enthalten UTF-8; Jelly wird unverändert als Binärdatei heruntergeladen.
 Änderungen an Eingabe oder Einstellungen entfernen alte Ergebnisse.
 
 Im normalen Ablauf wird nur das ausgewählte Ergebnis berechnet. Ressourcen für
@@ -613,23 +633,33 @@ Zusätzliche API-Endpunkte (jeweils relativ zum konfigurierten Basispfad):
   wird beim Einlesen berücksichtigt.
 
 Die Antwort enthält `results` mit `id`, `fileName`, `mediaType`, `content`,
-`sizeBytes`, `error`, `empty` und `graphIri`, feldbezogene `errors`, `autoContext`,
-`effectiveFrame` und `resources`. Bei mehreren erfolgreichen Ergebnissen enthält
-`zipBase64` zusätzlich das ZIP-Archiv. `content` enthält das eigentliche Dokument;
-der API-Antwortumschlag ist keine herunterzuladende RDF-Datei.
+`sizeBytes`, `gzipSizeBytes`, `contentEncoding`, `error`, `empty` und `graphIri`,
+feldbezogene `errors`, `autoContext`, `effectiveFrame` und `resources`.
+Bei mehreren erfolgreichen Ergebnissen enthält
+`zipBase64` zusätzlich das ZIP-Archiv. `content` enthält bei Textformaten das
+eigentliche Dokument und bei Jelly dessen Base64-Kodierung (`contentEncoding: "base64"`).
+`sizeBytes` und `gzipSizeBytes` zählen die Dateibytes vor und nach gzip,
+ohne die Base64-Kodierung oder den JSON-Antwortumschlag. Auch ZIP-Archive enthalten
+die ursprünglichen Dateibytes einschließlich des binären Jelly-Inhalts.
+Der API-Antwortumschlag ist keine herunterzuladende RDF-Datei.
 
 Die API unterstützt weiterhin mehrere unabhängige Ausgaben pro Anfrage und
 stellt dann mit der Java-Standardbibliothek ein ZIP bereit. Ein fehlerhafter
 Kontext oder ein fehlerhaftes Frame verhindert dort nur die abhängigen Ausgaben.
-`rdfXmlOutput`, `jsonLdOutput`, `nQuadsOutput` und `trigOutput` wählen mit `true` die Formate aus;
+`rdfXmlOutput`, `jsonLdOutput`, `turtleOutput`, `nQuadsOutput`, `trigOutput` und
+`jellyOutput` wählen mit `true` die Formate aus;
 fehlende oder auf `false` gesetzte Flags wählen bei einer expliziten Formatauswahl
-keine weiteren Formate hinzu. Fehlen alle vier Flags, wird nur RDF/XML erzeugt.
+keine weiteren Formate hinzu. Fehlen alle sechs Flags, wird nur RDF/XML erzeugt.
+Für Turtle allein genügt `"turtleOutput": true`; das Ergebnis hat die ID `turtle`,
+den Dateinamen `converted.ttl` und den Medientyp `text/turtle`.
 Für N-Quads allein genügt `"nQuadsOutput": true`. Das Ergebnis hat die ID `nquads`,
 den Dateinamen `converted.nq` und den Medientyp `application/n-quads`.
 Für TriG allein genügt `"trigOutput": true`; das Ergebnis hat die ID `trig`,
 den Dateinamen `converted.trig` und den Medientyp `application/trig`.
-Bei erfolgreichen JSON-LD-, N-Quads- und TriG-Ergebnissen enthält `graphIri` den
-automatisch gewählten Graphnamen; bei RDF/XML ist das Feld `null`.
+Für Jelly allein genügt `"jellyOutput": true`; das Ergebnis hat die ID `jelly`,
+den Dateinamen `converted.jelly` und den Medientyp `application/x-jelly-rdf`.
+Bei erfolgreichen JSON-LD-, N-Quads-, TriG- und Jelly-Ergebnissen enthält `graphIri` den
+automatisch gewählten Graphnamen; bei RDF/XML und Turtle ist das Feld `null`.
 Die Oberfläche verwendet `contextMode: "generated"`, damit auch eigene Frames
 den Kontext aus den aktuellen Quelldaten verwenden. Die bisherigen API-Modi
 `auto` und `custom` bleiben für vorhandene API-Clients unverändert verfügbar.

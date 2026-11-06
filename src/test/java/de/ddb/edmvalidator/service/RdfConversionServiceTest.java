@@ -5,6 +5,10 @@ import com.apicatalog.jsonld.document.JsonDocument;
 import de.ddb.edmvalidator.api.ConversionRequest;
 import de.ddb.edmvalidator.api.ConversionResponse;
 import de.ddb.edmvalidator.api.ConversionResult;
+import eu.neverblink.jelly.convert.jena.riot.JellyLanguage;
+import eu.neverblink.jelly.core.proto.v1.PhysicalStreamType;
+import eu.neverblink.jelly.core.proto.v1.LogicalStreamType;
+import eu.neverblink.jelly.core.proto.v1.RdfStreamFrame;
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonValue;
@@ -24,6 +28,7 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +44,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.zip.ZipInputStream;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static java.util.Objects.requireNonNull;
@@ -76,6 +83,13 @@ class RdfConversionServiceTest {
         options.nQuadsOutput = null;
         options.trigOutput = true;
         assertEquals(List.of("trig"), service.convert(options.request()).results().stream().map(ConversionResult::id).toList());
+        options.trigOutput = null;
+        options.turtleOutput = true;
+        assertEquals(List.of("turtle"), service.convert(options.request()).results().stream().map(ConversionResult::id).toList());
+        options.turtleOutput = null;
+        options.jellyOutput = true;
+        assertEquals(List.of("jelly"), service.convert(options.request()).results().stream().map(ConversionResult::id).toList());
+        options.jellyOutput = null;
         options.rdfXmlOutput = false;
         options.jsonLdOutput = false;
         options.nQuadsOutput = false;
@@ -88,6 +102,109 @@ class RdfConversionServiceTest {
         options.trigOutput = null;
         assertEquals("outputs", service.convert(options.request()).errors().getFirst().field(),
                 "An explicit false flag does not re-enable implicit defaults");
+        options.rdfXmlOutput = null;
+        options.turtleOutput = false;
+        assertEquals("outputs", service.convert(options.request()).errors().getFirst().field());
+        options.turtleOutput = null;
+        options.jellyOutput = false;
+        assertEquals("outputs", service.convert(options.request()).errors().getFirst().field());
+    }
+
+    @Test
+    void turtleAndJellyRoundTripRdfTermsAndBinaryArchives() throws Exception {
+        String xml = rdf("""
+                <rdf:Description rdf:about="https://example.org/München">
+                  <ex:part rdf:nodeID="part"/><ex:again rdf:nodeID="part"/>
+                  <ex:label xml:lang="de">München &amp; Straße 😀</ex:label>
+                  <ex:number rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">007</ex:number>
+                </rdf:Description>
+                <rdf:Description rdf:nodeID="part"><ex:next rdf:nodeID="other"/></rdf:Description>
+                <rdf:Description rdf:nodeID="other"><ex:next rdf:nodeID="part"/></rdf:Description>
+                """);
+        Options options = new Options(xml);
+        options.rdfXmlOutput = false;
+        options.jsonLdOutput = false;
+        options.turtleOutput = true;
+        options.jellyOutput = true;
+        options.xmlRepresentation = "ignored";
+        options.methods = List.of("ignored");
+        options.representation = "ignored";
+        ConversionResponse response = service.convert(options.request());
+        assertTrue(response.errors().isEmpty(), response.errors().toString());
+        ConversionResult turtle = successful(response, "turtle");
+        assertEquals("converted.ttl", turtle.fileName());
+        assertEquals("text/turtle", turtle.mediaType());
+        assertNull(turtle.contentEncoding());
+        assertNull(turtle.graphIri());
+        Model expected = read(xml, Lang.RDFXML);
+        Model actual = read(content(turtle), Lang.TURTLE);
+        try {
+            assertTrue(expected.isIsomorphicWith(actual));
+        } finally { expected.close(); actual.close(); }
+        ConversionResult jelly = successful(response, "jelly");
+        assertEquals("converted.jelly", jelly.fileName());
+        assertEquals("application/x-jelly-rdf", jelly.mediaType());
+        assertEquals("base64", jelly.contentEncoding());
+        assertJellyGraph(xml, jelly);
+        assertArchiveMatchesResults(response);
+    }
+
+    @Test
+    void everyOutputReportsGzipSizeOfItsActualFileBytesIncludingEmptyGraphs() throws Exception {
+        for (String xml : List.of(fixture(), rdf(""))) {
+            Options options = datasetOptions(xml);
+            options.rdfXmlOutput = true;
+            options.turtleOutput = true;
+            options.jellyOutput = true;
+            options.methods = List.of("expanded", "compacted", "flattened", "framed");
+            options.rootIri = ORGANISATION;
+            ConversionResponse response = service.convert(options.request());
+            assertTrue(response.errors().isEmpty(), response.errors().toString());
+            assertEquals(9, response.results().size());
+            for (ConversionResult result : response.results()) {
+                assertNull(result.error(), result.error());
+                byte[] file = fileBytes(result);
+                ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+                try (var gzip = new GZIPOutputStream(compressed)) { gzip.write(file); }
+                assertEquals(file.length, result.sizeBytes(), result.id());
+                assertEquals(compressed.size(), result.gzipSizeBytes(), result.id());
+                assertTrue(result.gzipSizeBytes() > 0, "Even an empty file has a gzip header and trailer");
+                try (var gzip = new GZIPInputStream(new ByteArrayInputStream(compressed.toByteArray()))) {
+                    assertArrayEquals(file, gzip.readAllBytes());
+                }
+            }
+            ConversionResult jelly = successful(response, "jelly");
+            assertTrue(jelly.sizeBytes() > 0, "Even an empty Jelly stream declares its options");
+            try (var frames = new ByteArrayInputStream(fileBytes(jelly))) {
+                var first = RdfStreamFrame.parseDelimitedFrom(frames);
+                assertNotNull(first);
+                assertFalse(first.getRows().isEmpty());
+                var declared = first.getRows().iterator().next().getOptions();
+                assertTrue(declared.getVersion() > 0);
+                assertEquals(PhysicalStreamType.QUADS, declared.getPhysicalType());
+                assertEquals(LogicalStreamType.FLAT_QUADS, declared.getLogicalType());
+                if (xml.equals(rdf(""))) assertEquals(0, frames.available(), "An empty stream is one valid delimited options frame");
+            }
+            assertJellyGraph(xml, jelly);
+            assertArchiveMatchesResults(response);
+        }
+    }
+
+    private static void assertJellyGraph(String xml, ConversionResult result) {
+        var dataset = DatasetFactory.createTxnMem();
+        Model expected = read(xml, Lang.RDFXML);
+        try {
+            RDFDataMgr.read(dataset, new ByteArrayInputStream(fileBytes(result)), JellyLanguage.JELLY);
+            assertTrue(dataset.getDefaultModel().isEmpty());
+            assertTrue(dataset.getNamedModel(requireNonNull(result.graphIri())).isIsomorphicWith(expected));
+            assertTrue(dataset.asDatasetGraph().stream().allMatch(quad -> quad.getGraph().isURI()
+                    && result.graphIri().equals(quad.getGraph().getURI())));
+        } finally { dataset.close(); expected.close(); }
+    }
+
+    private static byte[] fileBytes(ConversionResult result) {
+        return "base64".equals(result.contentEncoding()) ? Base64.getDecoder().decode(content(result))
+                : content(result).getBytes(StandardCharsets.UTF_8);
     }
 
     @Test
@@ -1002,7 +1119,7 @@ class RdfConversionServiceTest {
         var successful = response.results().stream().filter(result -> result.error() == null).toList();
         assertEquals(successful.size(), entries.size(), "The ZIP excludes failed results");
         for (ConversionResult result : successful) {
-            assertArrayEquals(content(result).getBytes(StandardCharsets.UTF_8), entries.get(result.fileName()), result.fileName());
+            assertArrayEquals(fileBytes(result), entries.get(result.fileName()), result.fileName());
         }
     }
 
@@ -1232,6 +1349,8 @@ class RdfConversionServiceTest {
         Boolean jsonLdOutput = true;
         Boolean nQuadsOutput;
         Boolean trigOutput;
+        Boolean turtleOutput;
+        Boolean jellyOutput;
         List<@Nullable String> methods = List.of("compacted");
         String contextMode = "auto";
         String context;
@@ -1247,7 +1366,8 @@ class RdfConversionServiceTest {
 
         ConversionRequest request() {
             return new ConversionRequest(rdfXml, baseIri, documentIri, rdfXmlOutput, jsonLdOutput, methods,
-                    contextMode, context, frameMode, rootIri, embed, frame, representation, xmlRepresentation, xmlStructure, nQuadsOutput, trigOutput);
+                    contextMode, context, frameMode, rootIri, embed, frame, representation, xmlRepresentation, xmlStructure,
+                    nQuadsOutput, trigOutput, turtleOutput, jellyOutput);
         }
     }
 }

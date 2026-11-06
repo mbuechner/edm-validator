@@ -20,6 +20,7 @@
     <properties>
         <java.version>25</java.version>
         <jena.version>6.2.0</jena.version>
+        <jelly.version>3.7.3</jelly.version>
         <rdf4j.version>6.1.0</rdf4j.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
         <frontend.node.version>v24.19.0</frontend.node.version>
@@ -48,6 +49,18 @@
             <groupId>org.apache.jena</groupId>
             <artifactId>jena-shacl</artifactId>
             <version>${jena.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>eu.neverblink.jelly</groupId>
+            <artifactId>jelly-jena</artifactId>
+            <version>${jelly.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.jena</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
