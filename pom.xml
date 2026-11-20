@@ -24,9 +24,24 @@
         <jelly.version>4.0.1</jelly.version>
         <rdf4j.version>6.1.0</rdf4j.version>
         <frontend-maven-plugin.version>2.0.2</frontend-maven-plugin.version>
-        <frontend.node.version>v24.19.0</frontend.node.version>
-        <frontend.npm.version>12.2.1</frontend.npm.version>
+        <frontend.node.version>v24.22.3</frontend.node.version>
+        <frontend.npm.version>12.2.3</frontend.npm.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>33.8.0-jre</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.thrift</groupId>
+                <artifactId>libthrift</artifactId>
+                <version>0.25.0</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>

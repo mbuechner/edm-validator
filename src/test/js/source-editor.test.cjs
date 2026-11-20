@@ -39,13 +39,13 @@ if (JSDOM) {
         const style = document.createElement('style');
         style.textContent = stylesheet;
         document.head.append(style);
-        // JSDOM does not implement forced-colors matching. Apply the selected, actual
-        // CSS media branch so cascade/metric assertions still exercise our stylesheet.
-        const mediaStyle = document.createElement('style');
-        mediaStyle.textContent = [...style.sheet.cssRules]
-            .filter(rule => rule.media?.mediaText === '(forced-colors: ' + (options.forcedColors ? 'active' : 'none') + ')')
-            .flatMap(rule => [...rule.cssRules].map(child => child.cssText)).join('\n');
-        document.head.append(mediaStyle);
+        // Apply one forced-colors branch in place to control the media preference in JSDOM.
+        const forcedColors = options.forcedColors ? 'active' : 'none';
+        style.textContent = [...style.sheet.cssRules].flatMap(rule => {
+            const media = rule.media?.mediaText;
+            if (media !== '(forced-colors: active)' && media !== '(forced-colors: none)') return rule.cssText;
+            return media === `(forced-colors: ${forcedColors})` ? [...rule.cssRules].map(child => child.cssText) : [];
+        }).join('\n');
         const timers = new Map(), observers = [], events = [], calls = [];
         let timerId = 0;
         window.setTimeout = (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; };

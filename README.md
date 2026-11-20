@@ -8,7 +8,7 @@ der Deutschen Digitalen Bibliothek auf Basis von Spring Boot.
 - Java 25 LTS (Amazon Corretto im Container und in der CI)
 - Maven 3.9+
 
-Maven installiert Node.js `24.19.0` und npm `12.2.1` lokal unter `target/`.
+Maven installiert Node.js `24.22.3` und npm `12.2.3` lokal unter `target/`.
 Alle JavaScript-Bibliotheken werden über die projektweiten `package.json` und
 `package-lock.json` verwaltet. In `generate-resources` führt Maven `npm ci` und
 `npm run build` aus. Die Browser-Dateien entstehen unter `target/frontend/` und
