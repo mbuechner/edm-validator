@@ -19,6 +19,7 @@
 
     <properties>
         <java.version>25</java.version>
+        <project.build.outputTimestamp>1980-01-01T00:00:02Z</project.build.outputTimestamp>
         <jena.version>6.2.0</jena.version>
         <jelly.version>3.7.3</jelly.version>
         <rdf4j.version>6.1.0</rdf4j.version>
@@ -181,6 +182,15 @@
                             <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.cyclonedx</groupId>
+                <artifactId>cyclonedx-maven-plugin</artifactId>
+                <configuration>
+                    <includeBomSerialNumber>false</includeBomSerialNumber>
+                    <includeProvidedScope>false</includeProvidedScope>
+                    <includeSystemScope>false</includeSystemScope>
                 </configuration>
             </plugin>
         </plugins>

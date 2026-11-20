@@ -1,0 +1,124 @@
+name: Check HTTP container
+description: Probe HTTP startup and scan the image and its optional CycloneDX SBOM.
+
+inputs:
+  image:
+    description: Pulled image reference by digest.
+    required: true
+  container-port:
+    description: Internal TCP port used by the HTTP server.
+    required: true
+  http-path:
+    description: Loopback HTTP request path. A 2xx or 3xx response passes the probe.
+    required: true
+  cyclonedx-path:
+    description: Optional absolute path to a CycloneDX JSON SBOM inside the image.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Probe HTTP startup and collect the optional SBOM
+      id: smoke
+      env:
+        IMAGE: ${{ inputs.image }}
+        CONTAINER_PORT: ${{ inputs.container-port }}
+        HTTP_PATH: ${{ inputs.http-path }}
+        CYCLONEDX_PATH: ${{ inputs.cyclonedx-path }}
+      shell: bash
+      run: |
+        if [[ ! "$CONTAINER_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || (( CONTAINER_PORT > 65535 )); then
+          echo '::error::container-port must be an integer from 1 to 65535.'
+          exit 1
+        fi
+        if [[ "$HTTP_PATH" != /* || ( -n "$CYCLONEDX_PATH" && "$CYCLONEDX_PATH" != /* ) ]]; then
+          echo '::error::http-path and any cyclonedx-path must start with /.'
+          exit 1
+        fi
+
+        container="$(docker run --pull never --detach --publish "127.0.0.1::${CONTAINER_PORT}" -- "$IMAGE")"
+        cleanup() {
+          local status=$?
+          if (( status != 0 )); then
+            docker inspect --format '{{json .State}}' "$container" >&2 || true
+            docker logs "$container" >&2 || true
+          fi
+          docker rm -f "$container" >/dev/null || true
+        }
+        trap cleanup EXIT
+
+        url="http://$(docker port "$container" "${CONTAINER_PORT}/tcp")${HTTP_PATH}"
+        # Spring Boot can spend up to 30 seconds loading the EDM schema at startup.
+        curl --fail --silent --show-error --globoff --noproxy '*' --retry 30 --retry-all-errors \
+          --retry-delay 2 --retry-max-time 65 --max-time 5 --output /dev/null -- "$url"
+
+        if [[ -n "$CYCLONEDX_PATH" ]]; then
+          sbom_dir="$(mktemp -d "$RUNNER_TEMP/container-sbom.XXXXXX")"
+          sbom="$sbom_dir/sbom.json"
+          if ! message="$(docker cp "$container:$CYCLONEDX_PATH" "$sbom" 2>&1)"; then
+            if [[ "$message" == *"Could not find the file $CYCLONEDX_PATH in container"* ]]; then
+              echo 'No CycloneDX SBOM in this release.'
+              exit 0
+            fi
+            printf '%s\n' "$message" >&2
+            exit 1
+          fi
+          if [[ ! -f "$sbom" || -L "$sbom" ]] || ! jq -e '.bomFormat == "CycloneDX" and (.components | type == "array" and length > 0)' "$sbom" >/dev/null; then
+            echo '::error::Expected a CycloneDX JSON SBOM with components.'
+            exit 1
+          fi
+          echo "sbom=$sbom" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Scan image for known vulnerabilities
+      id: image-scan
+      uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      with:
+        image: ${{ inputs.image }}
+        output-format: json
+        fail-build: false
+        by-cve: true
+
+    - name: Scan dependencies from the CycloneDX SBOM
+      id: sbom-scan
+      if: steps.smoke.outputs.sbom != ''
+      uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      with:
+        sbom: ${{ steps.smoke.outputs.sbom }}
+        output-format: json
+        fail-build: false
+        by-cve: true
+
+    - name: Summarize findings and apply release policy
+      env:
+        IMAGE_SCAN: ${{ steps.image-scan.outputs.json }}
+        SBOM_SCAN: ${{ steps.sbom-scan.outputs.json }}
+      shell: bash
+      run: |
+        scans=("$IMAGE_SCAN")
+        if [[ -n "$SBOM_SCAN" ]]; then
+          scans+=("$SBOM_SCAN")
+        fi
+        for result in "${scans[@]}"; do
+          jq -e '.matches | type == "array"' "$result" >/dev/null
+        done
+        findings="$(jq --slurp '
+          [.[].matches[]
+           | select(.vulnerability.severity == "High" or .vulnerability.severity == "Critical")]
+          | unique_by(.vulnerability.id, .artifact.type, .artifact.name, .artifact.version,
+                      .vulnerability.namespace, .vulnerability.fix.state)
+        ' "${scans[@]}")"
+        fixable="$(jq '[.[] | select(.vulnerability.fix.state == "fixed")] | length' <<< "$findings")"
+        {
+          echo '### High and Critical vulnerabilities'
+          echo
+          echo '| Advisory | Package | Installed | Source | Severity | Fixed versions |'
+          echo '| --- | --- | --- | --- | --- | --- |'
+          jq -r '.[] | "| \(.vulnerability.id) | \(.artifact.name) | \(.artifact.version) | \(.artifact.type) | \(.vulnerability.severity) | \((.vulnerability.fix.versions // []) | join(", ")) |"' <<< "$findings"
+          echo
+          echo "Fixable findings: $fixable"
+        } >> "$GITHUB_STEP_SUMMARY"
+        if (( fixable > 0 )); then
+          echo '::error::Fixable High or Critical vulnerabilities block promotion. See the job summary.'
+          exit 1
+        fi

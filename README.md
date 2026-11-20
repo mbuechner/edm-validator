@@ -5,7 +5,7 @@ der Deutschen Digitalen Bibliothek auf Basis von Spring Boot.
 
 ## Voraussetzungen
 
-- Java 25
+- Java 25 LTS (Amazon Corretto im Container und in der CI)
 - Maven 3.9+
 
 Maven installiert Node.js `24.19.0` und npm `12.2.1` lokal unter `target/`.
@@ -107,7 +107,9 @@ Container-Build lokal:
 docker build -t edm-validator .
 ```
 
-Der Container verwendet direkt das feste Maven-Artefakt `target/edm-validator.jar`.
+Der mehrstufige Build verwendet `maven:3-amazoncorretto-25` und
+`amazoncorretto:25`. Das Laufzeitimage enthält `/app/edm-validator.jar` und
+die CycloneDX-SBOM `/app/edm-validator-sbom.json`.
 
 Container starten:
 
@@ -115,26 +117,44 @@ Container starten:
 docker run --rm -p 8080:8080 -e APP_BASE_PATH=/app/edm-validator edm-validator
 ```
 
-Die Anwendung ist im Container als Non-Root-User konfiguriert.
+Die Anwendung läuft mit UID und GID `10001` auf Port `8080`. Mit
+`JAVA_OPTS` lassen sich JVM-Optionen setzen. Argumente nach dem Image-Namen
+werden an Spring Boot weitergegeben.
 
 Container aus GitHub Container Registry starten:
 
 ```bash
-docker run --rm -p 8080:8080 -e APP_BASE_PATH=/app/edm-validator ghcr.io/<owner>/<repo>:latest
+docker run --rm -p 8080:8080 ghcr.io/mbuechner/edm-validator:latest
 ```
 
-## CI
+## CI und Container-Veröffentlichung
 
-Eine GitHub-Action baut den Container bei Pushes und Pull Requests:
+Die [Maven-CI](.github/workflows/maven.yml) prüft Pushes auf `main` und Pull
+Requests mit Corretto 25 und `mvn verify`.
 
-- Workflow: [.github/workflows/container-build.yml](.github/workflows/container-build.yml)
-- Bei Pull Requests wird das Image gebaut, aber nicht gepusht.
-- Bei Pushes auf den Default-Branch wird das Image zusaetzlich nach GitHub Container Registry veroeffentlicht.
-- Registry-Ziel: `ghcr.io/<owner>/<repo>`
-- Tags aus dem Workflow:
-	- `latest` auf dem Default-Branch
-	- Branch-Tag
-	- Commit-SHA
+- **Release.** Ein stabiles Release startet den
+  [Container-Workflow](.github/workflows/docker-publish.yml) auf `main`.
+  Der Build nimmt Quellcode und Dockerfile aus dem Git-Tag. Für den
+  automatischen Start muss der getaggte Stand den Workflow enthalten.
+- **Täglich um 08:17 Uhr (Europe/Berlin).** Ein geänderter Release-Commit,
+  ein neuer Basisimage-Digest für `linux/amd64` oder ein fehlender Versionstag
+  löst einen Build aus. Sonst läuft der CVE-Scan auf dem vorhandenen Digest.
+- **Manuell.** Unter **Actions → Container veröffentlichen** auf `main`
+  starten. `release_tag` wählt ein veröffentlichtes stabiles Release.
+
+Der Workflow prüft den HTTP-Start, scannt Image und vorhandene SBOM und
+signiert den Digest vor der Veröffentlichung in GHCR. Behebbare High- und
+Critical-CVEs blockieren die Veröffentlichung.
+
+GitHubs neuestes stabiles Release erhält den Versionstag, `latest` und
+`tagged`. Die optionale Repository-Variable `CONTAINER_RELEASE_TAG` legt
+stattdessen ein anderes stabiles Release für die Pflege und die Aliase fest.
+Weitere Releases erhalten ihren Versionstag. Java und OS werden unter
+demselben Tag aktualisiert. App- und Maven-Änderungen brauchen ein neues Release.
+
+`CONTAINER_HTTP_PATH` überschreibt den Starttest-Pfad `/app/edm-validator/`.
+Ein bestehendes GHCR-Paket braucht unter **Manage Actions access**
+Schreibzugriff für dieses Repository.
 
 ## Validierungsumfang
 
