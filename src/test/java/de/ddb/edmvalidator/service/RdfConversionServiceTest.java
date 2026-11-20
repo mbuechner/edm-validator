@@ -6,9 +6,10 @@ import de.ddb.edmvalidator.api.ConversionRequest;
 import de.ddb.edmvalidator.api.ConversionResponse;
 import de.ddb.edmvalidator.api.ConversionResult;
 import eu.neverblink.jelly.convert.jena.riot.JellyLanguage;
+import eu.neverblink.jelly.core.JellyConstants;
 import eu.neverblink.jelly.core.proto.v1.PhysicalStreamType;
-import eu.neverblink.jelly.core.proto.v1.LogicalStreamType;
 import eu.neverblink.jelly.core.proto.v1.RdfStreamFrame;
+import eu.neverblink.jelly.core.proto.v1.RdfStreamType;
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonValue;
@@ -178,12 +179,16 @@ class RdfConversionServiceTest {
             try (var frames = new ByteArrayInputStream(fileBytes(jelly))) {
                 var first = RdfStreamFrame.parseDelimitedFrom(frames);
                 assertNotNull(first);
-                assertFalse(first.getRows().isEmpty());
+                assertEquals(1, first.getRows().size());
                 var declared = first.getRows().iterator().next().getOptions();
-                assertTrue(declared.getVersion() > 0);
+                assertEquals(JellyConstants.PROTO_VERSION_1_2_X, declared.getVersion());
                 assertEquals(PhysicalStreamType.QUADS, declared.getPhysicalType());
-                assertEquals(LogicalStreamType.FLAT_QUADS, declared.getLogicalType());
-                if (xml.equals(rdf(""))) assertEquals(0, frames.available(), "An empty stream is one valid delimited options frame");
+                assertEquals(RdfStreamType.FLAT, declared.getStreamType());
+                if (xml.equals(rdf(""))) {
+                    assertEquals(0, frames.available(), "An empty stream is one valid delimited options frame");
+                } else {
+                    assertTrue(first.getColumns().getRowCount() > 0);
+                }
             }
             assertJellyGraph(xml, jelly);
             assertArchiveMatchesResults(response);

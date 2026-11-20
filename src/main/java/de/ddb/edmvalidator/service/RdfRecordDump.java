@@ -3,7 +3,6 @@ package de.ddb.edmvalidator.service;
 import de.ddb.edmvalidator.api.ConversionRequest;
 import eu.neverblink.jelly.convert.jena.riot.JellyLanguage;
 import eu.neverblink.jelly.convert.jena.riot.JellyFormatVariant;
-import eu.neverblink.jelly.core.proto.v1.LogicalStreamType;
 import eu.neverblink.jelly.core.proto.v1.PhysicalStreamType;
 import eu.neverblink.jelly.core.proto.v1.RdfStreamFrame;
 import eu.neverblink.jelly.core.proto.v1.RdfStreamRow;
@@ -99,11 +98,10 @@ final class RdfRecordDump {
     /** RIOT writes the delimited Jelly file representation, with scoped quads in one record graph. */
     byte[] jelly() {
         if (source.isEmpty()) {
-            // Jelly 3.7's RIOT writer emits no frame without a statement. A file
-            // still needs a delimited options frame to declare its empty stream.
+            // The RIOT writer emits no frame for an empty dataset.
             var options = JellyFormatVariant.DEFAULT_OPTIONS.clone()
                     .setVersion(JellyConstants.PROTO_VERSION)
-                    .setPhysicalType(PhysicalStreamType.QUADS).setLogicalType(LogicalStreamType.FLAT_QUADS);
+                    .setPhysicalType(PhysicalStreamType.QUADS);
             return RdfStreamFrame.newInstance().addRows(RdfStreamRow.newInstance().setOptions(options))
                     .toByteArrayDelimited();
         }
